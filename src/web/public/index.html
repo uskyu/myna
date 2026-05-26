@@ -30,21 +30,49 @@
       grid-template-rows: 60px 1fr;
       height: 100vh;
     }
+    @media (max-width: 768px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: 60px auto 1fr;
+      }
+      .sidebar {
+        max-height: 200px;
+        overflow-y: auto;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border);
+      }
+      .sidebar.collapsed { display: none; }
+      .mobile-toggle { display: flex !important; }
+      .message { max-width: 95% !important; }
+      .modal { width: 95vw !important; }
+    }
     header {
       grid-column: 1 / -1;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
-      padding: 0 24px;
-      gap: 16px;
+      padding: 0 16px;
+      gap: 12px;
     }
     header h1 {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 600;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+    }
+    .mobile-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: var(--surface2);
+      border: none;
+      color: var(--text);
+      font-size: 18px;
+      cursor: pointer;
     }
     header .status {
       margin-left: auto;
@@ -53,8 +81,7 @@
     }
     header .status .dot {
       display: inline-block;
-      width: 8px;
-      height: 8px;
+      width: 8px; height: 8px;
       border-radius: 50%;
       background: var(--success);
       margin-right: 6px;
@@ -63,67 +90,59 @@
       background: var(--surface);
       border-right: 1px solid var(--border);
       overflow-y: auto;
-      padding: 16px;
+      padding: 12px;
     }
     .sidebar h3 {
-      font-size: 12px;
+      font-size: 11px;
       text-transform: uppercase;
       color: var(--text-dim);
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       letter-spacing: 1px;
     }
-    .sidebar .section { margin-bottom: 24px; }
+    .sidebar .section { margin-bottom: 16px; }
     .sidebar .item {
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 8px;
       cursor: pointer;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
+      font-size: 14px;
       transition: background 0.15s;
     }
     .sidebar .item:hover { background: var(--surface2); }
     .sidebar .item.active { background: var(--surface2); border-left: 3px solid var(--accent); }
-    .sidebar .item .dot-online {
-      width: 8px; height: 8px; border-radius: 50%; background: var(--success);
-    }
-    .sidebar .item .dot-offline {
-      width: 8px; height: 8px; border-radius: 50%; background: #666;
-    }
-    .main {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .panel {
-      flex: 1;
-      padding: 24px;
-      overflow-y: auto;
-    }
+    .sidebar .item .dot-online { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+    .sidebar .item .dot-offline { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+    .main { display: flex; flex-direction: column; overflow: hidden; }
+    .panel { flex: 1; padding: 16px; overflow-y: auto; }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
+      padding: 16px;
+      margin-bottom: 12px;
     }
-    .card h3 { margin-bottom: 12px; font-size: 16px; }
+    .card h3 { margin-bottom: 10px; font-size: 15px; }
     .btn {
-      padding: 8px 16px;
+      padding: 8px 14px;
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 500;
       transition: opacity 0.15s;
+      touch-action: manipulation;
     }
     .btn:hover { opacity: 0.85; }
+    .btn:active { transform: scale(0.97); }
     .btn-primary { background: var(--accent); color: white; }
     .btn-secondary { background: var(--surface2); color: var(--text); }
     .btn-danger { background: #c62828; color: white; }
+    .btn-success { background: #2e7d32; color: white; }
     .btn-sm { padding: 5px 10px; font-size: 12px; }
-    input, textarea {
+    input, textarea, select {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -131,10 +150,10 @@
       color: var(--text);
       font-size: 14px;
       width: 100%;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
-    input:focus, textarea:focus { outline: none; border-color: var(--accent); }
-    .flex { display: flex; gap: 10px; align-items: center; }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+    .flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .flex-between { display: flex; justify-content: space-between; align-items: center; }
     .tag {
       display: inline-block;
@@ -145,50 +164,26 @@
     }
     .tag-online { background: #1b5e20; color: #a5d6a7; }
     .tag-offline { background: #333; color: #999; }
-    .messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 16px;
-    }
+    .messages { flex: 1; overflow-y: auto; padding: 12px; }
     .message {
-      margin-bottom: 12px;
-      padding: 10px 14px;
+      margin-bottom: 10px;
+      padding: 10px 12px;
       background: var(--surface);
       border-radius: 8px;
       max-width: 80%;
     }
-    .message .sender {
-      font-size: 12px;
-      color: var(--accent);
-      margin-bottom: 4px;
-      font-weight: 600;
-    }
+    .message .sender { font-size: 12px; color: var(--accent); margin-bottom: 3px; font-weight: 600; }
     .message .content { font-size: 14px; line-height: 1.5; }
-    .message .content code {
-      background: var(--bg);
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 13px;
-    }
-    .message .content pre {
-      background: var(--bg);
-      padding: 12px;
-      border-radius: 6px;
-      overflow-x: auto;
-      margin: 8px 0;
-    }
-    .message .time {
-      font-size: 11px;
-      color: var(--text-dim);
-      margin-top: 4px;
-    }
+    .message .content code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .message .content pre { background: var(--bg); padding: 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0; }
+    .message .time { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
     .chat-input {
-      padding: 16px;
+      padding: 12px;
       border-top: 1px solid var(--border);
       display: flex;
-      gap: 10px;
+      gap: 8px;
     }
-    .chat-input input { margin-bottom: 0; }
+    .chat-input input { margin-bottom: 0; flex: 1; }
     .empty-state {
       display: flex;
       flex-direction: column;
@@ -196,8 +191,10 @@
       justify-content: center;
       height: 100%;
       color: var(--text-dim);
+      text-align: center;
+      padding: 20px;
     }
-    .empty-state h2 { margin-bottom: 8px; }
+    .empty-state h2 { margin-bottom: 8px; font-size: 18px; }
     .modal-overlay {
       display: none;
       position: fixed;
@@ -206,60 +203,94 @@
       z-index: 100;
       align-items: center;
       justify-content: center;
+      padding: 16px;
     }
     .modal-overlay.active { display: flex; }
     .modal {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 24px;
-      width: 400px;
-      max-width: 90vw;
+      padding: 20px;
+      width: 440px;
+      max-width: 95vw;
+      max-height: 85vh;
+      overflow-y: auto;
     }
-    .modal h3 { margin-bottom: 16px; }
+    .modal h3 { margin-bottom: 14px; font-size: 16px; }
     .api-key {
       font-family: monospace;
-      font-size: 12px;
+      font-size: 11px;
       background: var(--bg);
       padding: 8px;
       border-radius: 4px;
       word-break: break-all;
       user-select: all;
+      border: 1px solid var(--border);
     }
-    .tabs {
-      display: flex;
-      gap: 0;
-      border-bottom: 1px solid var(--border);
-      margin-bottom: 16px;
+    .code-block {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre;
+      color: #c9d1d9;
+      position: relative;
+      margin: 8px 0;
     }
+    .code-block .copy-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      padding: 3px 8px;
+      font-size: 11px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-dim);
+      cursor: pointer;
+    }
+    .code-block .copy-btn:hover { color: var(--text); }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 12px; overflow-x: auto; }
     .tab {
-      padding: 10px 20px;
+      padding: 8px 16px;
       cursor: pointer;
       border-bottom: 2px solid transparent;
       color: var(--text-dim);
-      font-size: 14px;
+      font-size: 13px;
+      white-space: nowrap;
     }
     .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .connect-info { margin-top: 12px; padding: 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); }
+    .connect-info h4 { font-size: 13px; margin-bottom: 8px; color: var(--accent); }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px; font-size: 11px; }
+    .badge-running { background: #1b5e20; color: #a5d6a7; }
+    .badge-stopped { background: #4a1c1c; color: #ef9a9a; }
   </style>
 </head>
 <body>
   <div class="app">
     <header>
+      <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
       <h1>⚡ Hermes Hub</h1>
       <span class="status"><span class="dot"></span><span id="status-text">Connected</span></span>
     </header>
-    <div class="sidebar">
+    <div class="sidebar" id="sidebar">
       <div class="section">
         <div class="flex-between">
           <h3>Agents</h3>
-          <button class="btn btn-primary btn-sm" onclick="showCreateAgent()">+</button>
+          <button class="btn btn-primary btn-sm" onclick="showCreateAgent()">+ New</button>
         </div>
         <div id="agent-list"></div>
       </div>
       <div class="section">
         <div class="flex-between">
           <h3>Rooms</h3>
-          <button class="btn btn-primary btn-sm" onclick="showCreateRoom()">+</button>
+          <button class="btn btn-primary btn-sm" onclick="showCreateRoom()">+ New</button>
         </div>
         <div id="room-list"></div>
       </div>
@@ -267,18 +298,18 @@
     <div class="main" id="main-content">
       <div class="empty-state">
         <h2>Welcome to Hermes Hub</h2>
-        <p>Create agents and rooms to get started</p>
+        <p>Create agents and rooms to start collaborating</p>
       </div>
     </div>
   </div>
-
+     1|
   <!-- Create Agent Modal -->
   <div class="modal-overlay" id="modal-agent">
     <div class="modal">
       <h3>Create Agent</h3>
-      <input type="text" id="agent-name" placeholder="Agent name (e.g. Coder)">
+      <input type="text" id="agent-name" placeholder="Agent name (e.g. Coder, Browser-Tester)">
       <input type="text" id="agent-desc" placeholder="Description (optional)">
-      <div class="flex" style="margin-top:12px">
+      <div class="flex" style="margin-top:10px">
         <button class="btn btn-primary" onclick="createAgent()">Create</button>
         <button class="btn btn-secondary" onclick="closeModals()">Cancel</button>
       </div>
@@ -292,7 +323,7 @@
       <h3>Create Room</h3>
       <input type="text" id="room-name" placeholder="Room name (e.g. dev-team)">
       <input type="text" id="room-desc" placeholder="Description (optional)">
-      <div class="flex" style="margin-top:12px">
+      <div class="flex" style="margin-top:10px">
         <button class="btn btn-primary" onclick="createRoom()">Create</button>
         <button class="btn btn-secondary" onclick="closeModals()">Cancel</button>
       </div>
@@ -303,17 +334,30 @@
   <div class="modal-overlay" id="modal-member">
     <div class="modal">
       <h3>Add Member to Room</h3>
-      <select id="member-agent" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text);width:100%;margin-bottom:10px"></select>
-      <div class="flex" style="margin-top:12px">
+      <select id="member-agent"></select>
+      <div class="flex" style="margin-top:10px">
         <button class="btn btn-primary" onclick="addMember()">Add</button>
         <button class="btn btn-secondary" onclick="closeModals()">Cancel</button>
       </div>
     </div>
   </div>
 
+  <!-- Connection Info Modal -->
+  <div class="modal-overlay" id="modal-connect">
+    <div class="modal">
+      <h3>🔗 Connect Agent</h3>
+      <div id="connect-content"></div>
+      <div style="margin-top:14px">
+        <button class="btn btn-secondary" onclick="closeModals()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API = '';
+    const HUB_URL = window.location.origin;
     let currentRoom = null;
+    let currentView = null;
     let agents = [];
     let rooms = [];
     let pollInterval = null;
@@ -325,9 +369,13 @@
       return res.json();
     }
 
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('collapsed');
+    }
+
     async function loadAgents() {
       const data = await api('GET', '/admin/agents');
-      agents = data.result || [];
+      agents = (data.result || []).filter(a => a.id !== 'system');
       renderAgents();
     }
 
@@ -342,9 +390,9 @@
       el.innerHTML = agents.map(a => `
         <div class="item" onclick="showAgent('${a.id}')">
           <span class="dot-${a.status === 'online' ? 'online' : 'offline'}"></span>
-          <span>${a.name}</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${a.name}</span>
         </div>
-      `).join('');
+      `).join('') || '<div style="color:var(--text-dim);font-size:12px;padding:8px">No agents yet</div>';
     }
 
     function renderRooms() {
@@ -352,23 +400,130 @@
       el.innerHTML = rooms.map(r => `
         <div class="item ${currentRoom === r.id ? 'active' : ''}" onclick="openRoom('${r.id}')">
           <span>#</span>
-          <span>${r.name}</span>
+          <span style="flex:1">${r.name}</span>
           <span class="tag">${(r.members||[]).length}</span>
         </div>
-      `).join('');
+      `).join('') || '<div style="color:var(--text-dim);font-size:12px;padding:8px">No rooms yet</div>';
     }
 
-    function showCreateAgent() {
-      document.getElementById('modal-agent').classList.add('active');
-      document.getElementById('agent-result').innerHTML = '';
+    function showCreateAgent() { document.getElementById('modal-agent').classList.add('active'); document.getElementById('agent-result').innerHTML = ''; }
+    function showCreateRoom() { document.getElementById('modal-room').classList.add('active'); }
+    function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active')); }
+
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        // Brief visual feedback
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      });
     }
 
-    function showCreateRoom() {
-      document.getElementById('modal-room').classList.add('active');
-    }
+    function generateConnectCode(agent, lang) {
+      const key = agent.api_key;
+      const hubUrl = HUB_URL;
+      const name = agent.name;
+      const safeName = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      switch(lang) {
+        case 'python':
+          return [
+            'import requests',
+            'import time',
+            '',
+            'HUB_URL = "' + hubUrl + '"',
+            'API_KEY = "' + key + '"',
+            '',
+            'def send_message(room_id, text, mentions=None):',
+            '    resp = requests.post(f"{HUB_URL}/bot{API_KEY}/sendMessage", json={',
+            '        "room_id": room_id,',
+            '        "text": text,',
+            '        "mentions": mentions or []',
+            '    })',
+            '    return resp.json()',
+            '',
+            'def get_updates(offset=0):',
+            '    resp = requests.post(f"{HUB_URL}/bot{API_KEY}/getUpdates", json={',
+            '        "offset": offset',
+            '    })',
+            '    return resp.json()',
+            '',
+            '# Poll loop',
+            'print(f"Agent \'' + name + '\' connected to Hermes Hub")',
+            'offset = 0',
+            'while True:',
+            '    data = get_updates(offset)',
+            '    for update in data.get("result", []):',
+            '        msg = update["payload"]',
+            '        print(f"[{msg[\'from\'][\'name\']}]: {msg[\'text\']}")',
+            '        # Handle message here...',
+            '        offset = update["update_id"] + 1',
+            '    time.sleep(2)',
+          ].join('\n');
 
-    function closeModals() {
-      document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+        case 'node':
+          return [
+            "const WebSocket = require('ws');",
+            '',
+            'const HUB_URL = "' + hubUrl + '";',
+            'const API_KEY = "' + key + '";',
+            '',
+            '// WebSocket connection (real-time)',
+            'const wsUrl = HUB_URL.replace("http", "ws") + "/ws?api_key=" + API_KEY;',
+            'const ws = new WebSocket(wsUrl);',
+            '',
+            'ws.on("open", () => console.log("Agent \\"' + name + '\\" connected to Hermes Hub"));',
+            '',
+            'ws.on("message", (data) => {',
+            '  const msg = JSON.parse(data.toString());',
+            '  if (msg.type === "message") {',
+            '    console.log(`[${msg.from.name}]: ${msg.text}`);',
+            '    // Handle message here...',
+            '    // To reply:',
+            '    // ws.send(JSON.stringify({ type: "sendMessage", room_id: msg.room_id, text: "Got it!" }));',
+            '  }',
+            '});',
+            '',
+            'ws.on("close", () => {',
+            '  console.log("Disconnected, reconnecting in 5s...");',
+            '  setTimeout(() => process.exit(1), 5000);',
+            '});',
+          ].join('\n');
+
+        case 'curl':
+          return [
+            '# Get bot info',
+            'curl ' + hubUrl + '/bot' + key + '/getMe',
+            '',
+            '# List rooms',
+            'curl ' + hubUrl + '/bot' + key + '/getRooms',
+            '',
+            '# Send message',
+            'curl -X POST ' + hubUrl + '/bot' + key + '/sendMessage \\',
+            '  -H "Content-Type: application/json" \\',
+            '  -d \'{"room_id": "ROOM_ID", "text": "Hello from curl!"}\'',
+            '',
+            '# Poll for updates',
+            'curl -X POST ' + hubUrl + '/bot' + key + '/getUpdates \\',
+            '  -H "Content-Type: application/json" \\',
+            '  -d \'{"offset": 0}\'',
+          ].join('\n');
+
+        case 'docker':
+          return [
+            '# Run agent container with auto-connect',
+            'docker run -d \\',
+            '  --name hermes-agent-' + safeName + ' \\',
+            '  --restart unless-stopped \\',
+            '  -e HERMES_HUB_URL=' + hubUrl + ' \\',
+            '  -e HERMES_HUB_API_KEY=' + key + ' \\',
+            '  -e HERMES_AGENT_NAME=' + name + ' \\',
+            '  ghcr.io/uskyu/hermes-hub-agent:latest',
+          ].join('\n');
+      }
     }
 
     async function createAgent() {
@@ -377,11 +532,14 @@
       if (!name) return;
       const data = await api('POST', '/admin/agents', { name, description });
       if (data.ok) {
+        const agent = data.result;
         document.getElementById('agent-result').innerHTML = `
-          <p style="color:var(--success)">✓ Created!</p>
-          <p style="margin-top:8px">API Key:</p>
-          <div class="api-key">${data.result.api_key}</div>
-          <p style="margin-top:8px;font-size:12px;color:var(--text-dim)">Save this key — it won't be shown again.</p>
+          <div style="background:var(--bg);border-radius:8px;padding:12px;border:1px solid var(--success)">
+            <p style="color:var(--success);font-weight:600">✓ Agent "${agent.name}" created!</p>
+            <p style="margin-top:8px;font-size:12px;color:var(--text-dim)">API Key (save it now):</p>
+            <div class="api-key" onclick="copyText('${agent.api_key}')" style="cursor:pointer;margin-top:4px" title="Click to copy">${agent.api_key}</div>
+            <p style="margin-top:10px;font-size:12px;color:var(--text-dim)">Click the key to copy. Use "Connect" button on agent page for integration code.</p>
+          </div>
         `;
         document.getElementById('agent-name').value = '';
         document.getElementById('agent-desc').value = '';
@@ -394,26 +552,62 @@
       const description = document.getElementById('room-desc').value.trim();
       if (!name) return;
       const data = await api('POST', '/admin/rooms', { name, description });
-      if (data.ok) {
-        closeModals();
-        loadRooms();
-      }
+      if (data.ok) { closeModals(); loadRooms(); }
+    }
+
+    function showConnectModal(agent) {
+      const content = document.getElementById('connect-content');
+      const langs = ['python', 'node', 'curl', 'docker'];
+      content.innerHTML = `
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">
+          Copy the code below to connect <strong>${agent.name}</strong> to this Hub.
+          The API key and gateway URL are pre-filled.
+        </p>
+        <div class="tabs" id="connect-tabs">
+          ${langs.map((l, i) => `<div class="tab ${i===0?'active':''}" onclick="switchConnectTab('${l}')">${l === 'node' ? 'Node.js' : l === 'curl' ? 'cURL' : l === 'docker' ? 'Docker' : 'Python'}</div>`).join('')}
+        </div>
+        ${langs.map((l, i) => `
+          <div class="tab-content ${i===0?'active':''}" id="tab-${l}">
+            <div class="code-block"><button class="copy-btn" onclick="copyText(generateConnectCode(window._connectAgent, '${l}'))">Copy</button>${escapeHtml(generateConnectCode(agent, l))}</div>
+          </div>
+        `).join('')}
+      `;
+      window._connectAgent = agent;
+      document.getElementById('modal-connect').classList.add('active');
+    }
+
+    function switchConnectTab(lang) {
+      document.querySelectorAll('#connect-tabs .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('#modal-connect .tab-content').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + lang).classList.add('active');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     async function showAgent(id) {
       const agent = agents.find(a => a.id === id);
       if (!agent) return;
+      currentView = 'agent';
+      currentRoom = null;
+      renderRooms();
+
       const main = document.getElementById('main-content');
       main.innerHTML = `
         <div class="panel">
           <div class="card">
             <div class="flex-between">
               <h3>${agent.name}</h3>
-              <span class="tag tag-${agent.status === 'online' ? 'online' : 'offline'}">${agent.status}</span>
+              <span class="tag tag-${agent.status === 'online' ? 'online' : 'offline'}">${agent.status || 'offline'}</span>
             </div>
-            <p style="color:var(--text-dim);margin-top:8px">${agent.description || 'No description'}</p>
-            <p style="margin-top:12px;font-size:12px;color:var(--text-dim)">Created: ${agent.created_at}</p>
-            <div class="flex" style="margin-top:16px">
+            <p style="color:var(--text-dim);margin-top:6px;font-size:13px">${agent.description || 'No description'}</p>
+            <p style="margin-top:8px;font-size:12px;color:var(--text-dim)">Created: ${agent.created_at}</p>
+            ${agent.container_id ? `<p style="margin-top:4px"><span class="badge badge-running">● Container Running</span></p>` : ''}
+            <div class="flex" style="margin-top:14px">
+              <button class="btn btn-success btn-sm" onclick='showConnectModal(${JSON.stringify(agent)})'>🔗 Connect</button>
+              <button class="btn btn-primary btn-sm" onclick="startContainer('${id}')">▶ Start Container</button>
               <button class="btn btn-danger btn-sm" onclick="deleteAgent('${id}')">Delete</button>
             </div>
           </div>
@@ -423,20 +617,21 @@
 
     async function openRoom(id) {
       currentRoom = id;
+      currentView = 'room';
       renderRooms();
       const room = rooms.find(r => r.id === id);
       if (!room) return;
 
-      const msgData = await api('GET', `/admin/rooms/${id}/messages?limit=100`);
+      const msgData = await api('GET', '/admin/rooms/' + id + '/messages?limit=100');
       const messages = msgData.result || [];
 
       const main = document.getElementById('main-content');
       main.innerHTML = `
-        <div style="padding:16px;border-bottom:1px solid var(--border)">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
           <div class="flex-between">
             <div>
-              <h3># ${room.name}</h3>
-              <span style="font-size:12px;color:var(--text-dim)">${(room.members||[]).map(m=>m.name).join(', ') || 'No members'}</span>
+              <h3 style="font-size:15px"># ${room.name}</h3>
+              <span style="font-size:11px;color:var(--text-dim)">${(room.members||[]).map(m=>m.name).join(', ') || 'No members'}</span>
             </div>
             <div class="flex">
               <button class="btn btn-secondary btn-sm" onclick="showAddMember('${id}')">+ Member</button>
@@ -456,7 +651,6 @@
       const container = document.getElementById('messages-container');
       container.scrollTop = container.scrollHeight;
 
-      // Start polling for new messages
       if (pollInterval) clearInterval(pollInterval);
       pollInterval = setInterval(() => refreshMessages(id), 3000);
     }
@@ -473,7 +667,7 @@
 
     async function refreshMessages(roomId) {
       if (currentRoom !== roomId) return;
-      const msgData = await api('GET', `/admin/rooms/${roomId}/messages?limit=100`);
+      const msgData = await api('GET', '/admin/rooms/' + roomId + '/messages?limit=100');
       const messages = msgData.result || [];
       const container = document.getElementById('messages-container');
       if (container) {
@@ -487,7 +681,7 @@
       const input = document.getElementById('chat-text');
       const text = input.value.trim();
       if (!text || !currentRoom) return;
-      await api('POST', `/admin/rooms/${currentRoom}/broadcast`, { text });
+      await api('POST', '/admin/rooms/' + currentRoom + '/broadcast', { text });
       input.value = '';
       refreshMessages(currentRoom);
     }
@@ -502,22 +696,32 @@
     async function addMember() {
       const roomId = document.getElementById('modal-member').dataset.roomId;
       const agentId = document.getElementById('member-agent').value;
-      await api('POST', `/admin/rooms/${roomId}/members`, { agent_id: agentId });
+      await api('POST', '/admin/rooms/' + roomId + '/members', { agent_id: agentId });
       closeModals();
       loadRooms();
       openRoom(roomId);
     }
 
+    async function startContainer(agentId) {
+      const res = await api('POST', '/admin/agents/' + agentId + '/start', {});
+      if (res.ok) {
+        alert('Container started!');
+        loadAgents();
+      } else {
+        alert('Error: ' + (res.error || 'Failed to start'));
+      }
+    }
+
     async function deleteAgent(id) {
-      if (!confirm('Delete this agent?')) return;
-      await api('DELETE', `/admin/agents/${id}`);
+      if (!confirm('Delete this agent? This cannot be undone.')) return;
+      await api('DELETE', '/admin/agents/' + id);
       loadAgents();
       document.getElementById('main-content').innerHTML = '<div class="empty-state"><h2>Agent deleted</h2></div>';
     }
 
     async function deleteRoom(id) {
-      if (!confirm('Delete this room?')) return;
-      await api('DELETE', `/admin/rooms/${id}`);
+      if (!confirm('Delete this room and all messages?')) return;
+      await api('DELETE', '/admin/rooms/' + id);
       currentRoom = null;
       loadRooms();
       document.getElementById('main-content').innerHTML = '<div class="empty-state"><h2>Room deleted</h2></div>';
