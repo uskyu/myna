@@ -9,6 +9,7 @@ const gatewayRouter = require('./gateway/index');
 const orchestratorRouter = require('./orchestrator/index');
 const agentManagerRouter = require('./agent-manager/index');
 const configRouter = require('./config/index');
+const WorkflowRunner = require('./workflow/runner');
 
 const app = express();
 const server = http.createServer(app);
@@ -85,6 +86,10 @@ setInterval(async () => {
 async function main() {
   const db = getDatabase();
   await db.ready();
+
+  // Initialize WorkflowRunner
+  const workflowRunner = new WorkflowRunner(db, wsManager);
+  app.set('workflowRunner', workflowRunner);
 
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, () => {

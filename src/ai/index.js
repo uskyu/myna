@@ -253,7 +253,7 @@ async function chatCompletion(agent, history, callbacks = {}, modelConfig = null
  * Process a message and generate AI replies from mentioned/all agents.
  * Streams tokens + tool events to UI via WebSocket.
  */
-async function processMessage(db, wsManager, roomId, senderId, text, mentions = [], roomType = 'group', chainDepth = 0) {
+async function processMessage(db, wsManager, roomId, senderId, text, mentions = [], roomType = 'group', chainDepth = 0, threadId = null) {
   const roomSettings = db.getRoomSettings(roomId);
   const MAX_CHAIN_DEPTH = roomSettings.max_chain_depth || 0; // 0 = unlimited
   if (MAX_CHAIN_DEPTH > 0 && chainDepth >= MAX_CHAIN_DEPTH) {
@@ -297,7 +297,7 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
   respondingAgents = respondingAgents.filter(a => a.status !== 'offline');
   if (respondingAgents.length === 0) return;
 
-  const recentMessages = await db.getRoomMessages(roomId, 20);
+  const recentMessages = threadId ? await db.getThreadMessages(threadId, 20) : await db.getRoomMessages(roomId, 20);
 
   // Resolve uploaded file references in messages
   const UPLOADS_DIR = path.resolve(__dirname, '..', '..', 'data', 'uploads');
@@ -455,7 +455,9 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
       if (mentioned) replyMentions.push(mentioned.id);
     }
 
-    const message = await db.createMessage(roomId, agent.id, reply, 'markdown', null, replyMentions);
+    const message = threadId
+      ? await db.createMessageInThread(roomId, threadId, agent.id, reply, 'markdown', null, replyMentions)
+      : await db.createMessage(roomId, agent.id, reply, 'markdown', null, replyMentions);
 
     // Notify via WebSocket (for agent connections)
     for (const member of members) {
@@ -480,12 +482,14 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
       wsManager.notifyUI({
         type: 'new_message',
         room_id: roomId,
+        thread_id: threadId || null,
         message: {
           id: message.id,
           room_id: roomId,
           sender_id: agent.id,
           sender_name: agent.name || fullAgent.name,
           text: reply,
+          thread_id: threadId || null,
           created_at: new Date().toISOString()
         }
       });
@@ -495,7 +499,7 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
     if (replyMentions.length > 0 && roomType === 'group') {
       console.log(`[AI] Chain: ${agent.name} mentioned ${replyMentions.length} agent(s), depth=${chainDepth + 1}`);
       await new Promise(r => setTimeout(r, 1000));
-      await processMessage(db, wsManager, roomId, agent.id, reply, replyMentions, roomType, chainDepth + 1);
+      await processMessage(db, wsManager, roomId, agent.id, reply, replyMentions, roomType, chainDepth + 1, threadId);
     }
   }
 }

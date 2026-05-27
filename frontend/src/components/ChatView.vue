@@ -19,7 +19,26 @@
       <RoomInfoPanel :room="room" @changed="onMembersChanged" @close="showSettings = false" @deleted="$emit('close')" />
     </div>
 
-    <div v-else class="messages-area" ref="messagesArea" @scroll="onScroll">
+    <!-- Thread bar (group chats only) -->
+    <div v-else-if="type === 'group'" class="thread-bar-wrapper">
+      <div class="thread-bar">
+        <div class="thread-tab" :class="{ active: !activeThreadId }" @click="selectThread(null)">主线</div>
+        <div
+          v-for="t in threads"
+          :key="t.id"
+          class="thread-tab"
+          :class="{ active: activeThreadId === t.id }"
+          @click="selectThread(t.id)"
+        >
+          <span v-if="t.status === 'workflow_running'" class="thread-status">🔄</span>
+          {{ t.title }}
+          <button class="thread-close" @click.stop="deleteThread(t.id)" title="删除话题">×</button>
+        </div>
+        <button class="thread-add" @click="createThread" title="新建话题">+</button>
+      </div>
+    </div>
+
+    <div v-if="!(type === 'group' && showSettings)" class="messages-area" ref="messagesArea" @scroll="onScroll">
       <template v-for="(group, gi) in messageGroups" :key="gi">
         <div v-if="group.separator" class="time-separator"><span>{{ group.separator }}</span></div>
         <div class="msg-group" :class="{ self: group.self }">
@@ -139,6 +158,8 @@ const messages = ref([])
 const typingAgent = ref(null)
 const showSettings = ref(false)
 const attachments = ref([])
+const threads = ref([])
+const activeThreadId = ref(null)
 
 // Mention autocomplete
 const showMentions = ref(false)
@@ -259,7 +280,12 @@ const messageGroups = computed(() => {
 })
 
 async function fetchMessages() {
-  const data = await api('GET', `/admin/rooms/${props.room.id}/messages?limit=100`)
+  let data
+  if (activeThreadId.value) {
+    data = await api('GET', `/admin/threads/${activeThreadId.value}/messages?limit=100`)
+  } else {
+    data = await api('GET', `/admin/rooms/${props.room.id}/messages?limit=100`)
+  }
   const newMsgs = data.result || []
   // Preserve optimistic messages that haven't appeared in server response yet
   const serverIds = new Set(newMsgs.map(m => m.id))
@@ -269,6 +295,38 @@ async function fetchMessages() {
   messages.value = [...newMsgs, ...unsaved]
   await nextTick()
   scrollToBottomIfNeeded()
+}
+
+async function fetchThreads() {
+  if (props.type !== 'group') return
+  const data = await api('GET', `/admin/rooms/${props.room.id}/threads`)
+  threads.value = data.result || []
+}
+
+function selectThread(threadId) {
+  activeThreadId.value = threadId
+  messages.value = []
+  fetchMessages()
+}
+
+async function createThread() {
+  const title = prompt('话题名称：')
+  if (!title || !title.trim()) return
+  const data = await api('POST', `/admin/rooms/${props.room.id}/threads`, { title: title.trim() })
+  if (data.ok) {
+    await fetchThreads()
+    selectThread(data.result.id)
+  }
+}
+
+async function deleteThread(threadId) {
+  if (!confirm('确定删除此话题及其所有消息？')) return
+  await api('DELETE', `/admin/threads/${threadId}`)
+  if (activeThreadId.value === threadId) {
+    activeThreadId.value = null
+  }
+  await fetchThreads()
+  fetchMessages()
 }
 
 // Smart scroll: only auto-scroll if user is near bottom
@@ -435,7 +493,7 @@ async function send() {
   await nextTick()
   scrollToBottom()
 
-  await api('POST', `/admin/rooms/${props.room.id}/send`, { text: body, mentions })
+  await api('POST', activeThreadId.value ? `/admin/threads/${activeThreadId.value}/send` : `/admin/rooms/${props.room.id}/send`, { text: body, mentions })
 }
 
 async function handleCommand(text) {
@@ -497,7 +555,13 @@ function handleWS(msg) {
     // activeStreams cleanup is handled globally; just refresh messages
     setTimeout(fetchMessages, 300)
   } else if (msg.type === 'new_message' && msg.room_id === props.room.id) {
-    fetchMessages()
+    // Only fetch if thread matches current view
+    const msgThread = msg.thread_id || null
+    if (msgThread === activeThreadId.value) {
+      fetchMessages()
+    }
+    // Refresh threads list in case a workflow created a new thread
+    fetchThreads()
   } else if (msg.type === 'typing' && msg.room_id === props.room.id) {
     typingAgent.value = msg.from?.name || null
     setTimeout(() => { typingAgent.value = null }, 3000)
@@ -508,6 +572,7 @@ onMounted(() => {
   clearUnread(props.room.id)
   currentRoomId.value = props.room.id
   fetchMessages()
+  fetchThreads()
   pollTimer = setInterval(fetchMessages, 3000)
   ws.onMessage(handleWS)
 })

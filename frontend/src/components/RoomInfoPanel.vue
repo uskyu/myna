@@ -89,21 +89,36 @@
       </div>
     </div>
 
-    <!-- Group skills / knowledge (placeholder) -->
+    <!-- Workflow Management -->
     <div class="info-section">
       <div class="section-head">
-        <h4>🛠 群聊技能</h4>
-        <span class="muted soon-tag">开发中</span>
+        <h4>🛠 工作流</h4>
+        <button class="btn-sm" @click="showWorkflowEditor = true">创建工作流</button>
       </div>
-      <div class="hint-box">
-        <p>群聊级别的工作流和共享技能，例如：</p>
-        <ul>
-          <li>固定流程触发器（每周复盘、每日早报）</li>
-          <li>系统机器人（专责执行工作流的智能体）</li>
-          <li>群聊知识库（成员共享的资料）</li>
-        </ul>
+      <div v-if="workflows.length === 0" class="hint-box">
+        <p>暂无工作流。创建一个多步骤流程来自动化协作。</p>
+      </div>
+      <div v-else class="workflow-list">
+        <div v-for="wf in workflows" :key="wf.id" class="workflow-row">
+          <div class="workflow-info">
+            <div class="workflow-name">{{ wf.name }}</div>
+            <div class="workflow-meta">{{ triggerLabel(wf.trigger_type) }} · {{ stepCount(wf) }} 步</div>
+          </div>
+          <button class="icon-btn add" @click="runWorkflow(wf)" title="运行">▶</button>
+          <button class="icon-btn danger" @click="deleteWorkflow(wf)" title="删除">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
       </div>
     </div>
+
+    <!-- Workflow Editor Modal -->
+    <WorkflowEditor
+      v-if="showWorkflowEditor"
+      :room="room"
+      @close="showWorkflowEditor = false"
+      @saved="onWorkflowSaved"
+    />
 
     <div class="info-section">
       <div class="section-head">
@@ -126,6 +141,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api, store, getAgentColor, getAgentIcon, loadConversations } from '../store.js'
+import WorkflowEditor from './WorkflowEditor.vue'
 
 const props = defineProps({ room: Object })
 const emit = defineEmits(['close', 'changed', 'deleted'])
@@ -133,6 +149,8 @@ const emit = defineEmits(['close', 'changed', 'deleted'])
 const members = ref([])
 const saving = ref(false)
 const lastSavedTag = ref('')
+const workflows = ref([])
+const showWorkflowEditor = ref(false)
 const form = reactive({
   name: props.room.name || '',
   description: props.room.description || '',
@@ -238,7 +256,43 @@ async function deleteRoom() {
   }
 }
 
-onMounted(load)
+// === Workflow methods ===
+async function loadWorkflows() {
+  const data = await api('GET', `/admin/rooms/${props.room.id}/workflows`)
+  workflows.value = data.result || []
+}
+
+function triggerLabel(type) {
+  const labels = { manual: '手动', schedule: '定时', keyword: '关键词' }
+  return labels[type] || type
+}
+
+function stepCount(wf) {
+  try {
+    const steps = typeof wf.steps_json === 'string' ? JSON.parse(wf.steps_json) : wf.steps_json
+    return Array.isArray(steps) ? steps.length : 0
+  } catch { return 0 }
+}
+
+async function runWorkflow(wf) {
+  const res = await api('POST', `/admin/workflows/${wf.id}/run`)
+  if (res.ok) {
+    emit('changed')
+  }
+}
+
+async function deleteWorkflow(wf) {
+  if (!confirm(`确定删除工作流「${wf.name}」？`)) return
+  await api('DELETE', `/admin/workflows/${wf.id}`)
+  await loadWorkflows()
+}
+
+async function onWorkflowSaved() {
+  showWorkflowEditor.value = false
+  await loadWorkflows()
+}
+
+onMounted(() => { load(); loadWorkflows() })
 </script>
 
 <style scoped>
@@ -452,4 +506,33 @@ onMounted(load)
   background: var(--surface);
 }
 .danger-zone h4 { color: var(--danger); margin-bottom: 12px; }
+
+.btn-sm {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-sm:hover { background: var(--accent); color: white; }
+
+.workflow-list { }
+.workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  background: var(--surface);
+}
+.workflow-row:hover { background: var(--surface2); }
+.workflow-info { flex: 1; min-width: 0; }
+.workflow-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.workflow-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 </style>

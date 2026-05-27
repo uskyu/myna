@@ -350,6 +350,72 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   display: flex;
   flex-direction: column;
 }
+/* Thread bar */
+.thread-bar-wrapper {
+  flex-shrink: 0;
+}
+.thread-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.thread-bar::-webkit-scrollbar { display: none; }
+.thread-tab {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-2);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.thread-tab:hover { border-color: var(--accent); color: var(--accent); }
+.thread-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.thread-status { font-size: 11px; }
+.thread-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  border-radius: 50%;
+}
+.thread-close:hover { color: var(--danger); background: var(--danger-soft); }
+.thread-add {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.thread-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
 .messages-area {
   flex: 1;
   overflow-y: auto;

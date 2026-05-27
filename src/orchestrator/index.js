@@ -395,4 +395,140 @@ router.delete('/models/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// === Threads ===
+
+router.get('/rooms/:id/threads', async (req, res) => {
+  const db = getDatabase();
+  const threads = db.getThreads(req.params.id);
+  res.json({ ok: true, result: threads });
+});
+
+router.post('/rooms/:id/threads', async (req, res) => {
+  const db = getDatabase();
+  const { title } = req.body;
+  if (!title) return res.status(400).json({ ok: false, error: 'title is required' });
+  const thread = db.createThread(req.params.id, title);
+  res.json({ ok: true, result: thread });
+});
+
+router.put('/threads/:id', async (req, res) => {
+  const db = getDatabase();
+  const { title, status } = req.body;
+  db.updateThread(req.params.id, { title, status });
+  res.json({ ok: true });
+});
+
+router.delete('/threads/:id', async (req, res) => {
+  const db = getDatabase();
+  db.deleteThread(req.params.id);
+  res.json({ ok: true });
+});
+
+router.get('/threads/:id/messages', async (req, res) => {
+  const db = getDatabase();
+  const { limit } = req.query;
+  const messages = db.getThreadMessages(req.params.id, parseInt(limit) || 30);
+  res.json({ ok: true, result: messages });
+});
+
+router.post('/threads/:id/send', async (req, res) => {
+  const db = getDatabase();
+  const { text, mentions } = req.body;
+  if (!text) return res.status(400).json({ ok: false, error: 'text is required' });
+
+  const thread = db.getThread(req.params.id);
+  if (!thread) return res.status(404).json({ ok: false, error: 'Thread not found' });
+
+  // Ensure user agent exists
+  let userAgent = await db.getAgentByKey('__user__');
+  if (!userAgent) {
+    if (db.db) {
+      db.db.prepare(`INSERT OR IGNORE INTO agents (id, name, api_key, description, status) VALUES ('user', '我', '__user__', '用户', 'online')`).run();
+    }
+    userAgent = { id: 'user', name: '我' };
+  }
+
+  // Parse @mentions from text
+  const parsedMentions = mentions || [];
+  const mentionRegex = /@(\S+)/g;
+  let match;
+  if (!mentions || mentions.length === 0) {
+    const agents = await db.listAgents();
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const mentioned = agents.find(a => a.name === match[1]);
+      if (mentioned) parsedMentions.push(mentioned.id);
+    }
+  }
+
+  const message = db.createMessageInThread(thread.room_id, req.params.id, userAgent.id, text, 'markdown', null, parsedMentions);
+
+  // Get room type
+  const room = await db.getRoom(thread.room_id);
+  const roomType = room?.type || 'group';
+
+  res.json({ ok: true, result: message });
+
+  // Trigger AI reply asynchronously with threadId
+  const wsManager = req.app.get('wsManager');
+  processMessage(db, wsManager, thread.room_id, userAgent.id, text, parsedMentions, roomType, 0, req.params.id).catch(err => {
+    console.error('[AI] processMessage (thread) error:', err.message);
+  });
+});
+
+// === Workflows ===
+
+router.get('/rooms/:id/workflows', async (req, res) => {
+  const db = getDatabase();
+  const workflows = db.getWorkflows(req.params.id);
+  res.json({ ok: true, result: workflows });
+});
+
+router.post('/rooms/:id/workflows', async (req, res) => {
+  const db = getDatabase();
+  const { name, description, steps_json, trigger_type, trigger_config } = req.body;
+  if (!name || !steps_json) return res.status(400).json({ ok: false, error: 'name and steps_json are required' });
+  const workflow = db.createWorkflow(req.params.id, name, description, steps_json, trigger_type, trigger_config);
+  res.json({ ok: true, result: workflow });
+});
+
+router.put('/workflows/:id', async (req, res) => {
+  const db = getDatabase();
+  db.updateWorkflow(req.params.id, req.body);
+  res.json({ ok: true });
+});
+
+router.delete('/workflows/:id', async (req, res) => {
+  const db = getDatabase();
+  db.deleteWorkflow(req.params.id);
+  res.json({ ok: true });
+});
+
+router.post('/workflows/:id/run', async (req, res) => {
+  const db = getDatabase();
+  const workflow = db.getWorkflow(req.params.id);
+  if (!workflow) return res.status(404).json({ ok: false, error: 'Workflow not found' });
+
+  const runner = req.app.get('workflowRunner');
+  if (!runner) return res.status(500).json({ ok: false, error: 'WorkflowRunner not initialized' });
+
+  try {
+    const { runId, threadId } = await runner.start(req.params.id, workflow.room_id);
+    res.json({ ok: true, result: { runId, threadId } });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/workflow-runs/:id/cancel', async (req, res) => {
+  const runner = req.app.get('workflowRunner');
+  if (!runner) return res.status(500).json({ ok: false, error: 'WorkflowRunner not initialized' });
+
+  try {
+    await runner.cancel(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

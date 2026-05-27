@@ -97,6 +97,52 @@ class SQLiteAdapter extends DatabaseAdapter {
     }
     // Add settings_json column to rooms if not exists
     try { this.db.prepare(`ALTER TABLE rooms ADD COLUMN settings_json TEXT DEFAULT '{}'`).run(); } catch(e) {}
+
+    // === Thread system ===
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS threads (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        workflow_id TEXT DEFAULT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_threads_room ON threads(room_id, created_at DESC);
+    `);
+
+    // Add thread_id column to messages if not exists
+    try { this.db.prepare(`ALTER TABLE messages ADD COLUMN thread_id TEXT DEFAULT NULL`).run(); } catch(e) {}
+
+    // === Workflow system ===
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS workflows (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        steps_json TEXT NOT NULL,
+        trigger_type TEXT DEFAULT 'manual',
+        trigger_config TEXT DEFAULT '{}',
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS workflow_runs (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        status TEXT DEFAULT 'running',
+        current_step INTEGER DEFAULT 0,
+        context_json TEXT DEFAULT '{}',
+        started_at TEXT DEFAULT (datetime('now')),
+        completed_at TEXT DEFAULT NULL,
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+        FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+      );
+    `);
   }
 
   createAgent(name, description = '') {
@@ -326,6 +372,117 @@ class SQLiteAdapter extends DatabaseAdapter {
     this.db.prepare(`DELETE FROM model_configs WHERE id = ?`).run(id);
     // Clear agents referencing this config
     this.db.prepare(`UPDATE agents SET model_config_id = NULL WHERE model_config_id = ?`).run(id);
+  }
+
+  // === Threads ===
+  createThread(roomId, title, workflowId = null) {
+    const id = uuidv4();
+    this.db.prepare(`INSERT INTO threads (id, room_id, title, workflow_id) VALUES (?, ?, ?, ?)`).run(id, roomId, title, workflowId);
+    return this.db.prepare(`SELECT * FROM threads WHERE id = ?`).get(id);
+  }
+
+  getThreads(roomId) {
+    return this.db.prepare(`SELECT * FROM threads WHERE room_id = ? ORDER BY updated_at DESC`).all(roomId);
+  }
+
+  getThread(threadId) {
+    return this.db.prepare(`SELECT * FROM threads WHERE id = ?`).get(threadId);
+  }
+
+  updateThread(threadId, fields) {
+    const sets = [];
+    const vals = [];
+    if (fields.title !== undefined) { sets.push('title = ?'); vals.push(fields.title); }
+    if (fields.status !== undefined) { sets.push('status = ?'); vals.push(fields.status); }
+    if (sets.length === 0) return;
+    sets.push("updated_at = datetime('now')");
+    vals.push(threadId);
+    this.db.prepare(`UPDATE threads SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  deleteThread(threadId) {
+    this.db.prepare(`DELETE FROM messages WHERE thread_id = ?`).run(threadId);
+    this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(threadId);
+  }
+
+  getThreadMessages(threadId, limit = 30) {
+    return this.db.prepare(`
+      SELECT m.*, a.name as sender_name FROM messages m
+      JOIN agents a ON a.id = m.sender_id
+      WHERE m.thread_id = ?
+      ORDER BY m.id DESC LIMIT ?
+    `).all(threadId, limit).reverse();
+  }
+
+  createMessageInThread(roomId, threadId, senderId, text, parseMode = 'markdown', replyTo = null, mentions = []) {
+    const result = this.db.prepare(`
+      INSERT INTO messages (room_id, sender_id, text, parse_mode, reply_to_message_id, mentions, thread_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(roomId, senderId, text, parseMode, replyTo, JSON.stringify(mentions), threadId);
+    // Touch thread updated_at
+    this.db.prepare(`UPDATE threads SET updated_at = datetime('now') WHERE id = ?`).run(threadId);
+    return { id: Number(result.lastInsertRowid), room_id: roomId, sender_id: senderId, text, parse_mode: parseMode, reply_to_message_id: replyTo, mentions, thread_id: threadId };
+  }
+
+  // === Workflows ===
+  createWorkflow(roomId, name, description, stepsJson, triggerType = 'manual', triggerConfig = '{}') {
+    const id = uuidv4();
+    this.db.prepare(`INSERT INTO workflows (id, room_id, name, description, steps_json, trigger_type, trigger_config) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, roomId, name, description || '', typeof stepsJson === 'string' ? stepsJson : JSON.stringify(stepsJson), triggerType, typeof triggerConfig === 'string' ? triggerConfig : JSON.stringify(triggerConfig));
+    return this.db.prepare(`SELECT * FROM workflows WHERE id = ?`).get(id);
+  }
+
+  getWorkflows(roomId) {
+    return this.db.prepare(`SELECT * FROM workflows WHERE room_id = ? ORDER BY created_at DESC`).all(roomId);
+  }
+
+  getWorkflow(workflowId) {
+    return this.db.prepare(`SELECT * FROM workflows WHERE id = ?`).get(workflowId);
+  }
+
+  updateWorkflow(workflowId, fields) {
+    const sets = [];
+    const vals = [];
+    if (fields.name !== undefined) { sets.push('name = ?'); vals.push(fields.name); }
+    if (fields.description !== undefined) { sets.push('description = ?'); vals.push(fields.description); }
+    if (fields.steps_json !== undefined) { sets.push('steps_json = ?'); vals.push(typeof fields.steps_json === 'string' ? fields.steps_json : JSON.stringify(fields.steps_json)); }
+    if (fields.trigger_type !== undefined) { sets.push('trigger_type = ?'); vals.push(fields.trigger_type); }
+    if (fields.trigger_config !== undefined) { sets.push('trigger_config = ?'); vals.push(typeof fields.trigger_config === 'string' ? fields.trigger_config : JSON.stringify(fields.trigger_config)); }
+    if (sets.length === 0) return;
+    vals.push(workflowId);
+    this.db.prepare(`UPDATE workflows SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  deleteWorkflow(workflowId) {
+    this.db.prepare(`DELETE FROM workflow_runs WHERE workflow_id = ?`).run(workflowId);
+    this.db.prepare(`DELETE FROM workflows WHERE id = ?`).run(workflowId);
+  }
+
+  createWorkflowRun(workflowId, threadId) {
+    const id = uuidv4();
+    this.db.prepare(`INSERT INTO workflow_runs (id, workflow_id, thread_id) VALUES (?, ?, ?)`).run(id, workflowId, threadId);
+    return this.db.prepare(`SELECT * FROM workflow_runs WHERE id = ?`).get(id);
+  }
+
+  getWorkflowRun(runId) {
+    return this.db.prepare(`SELECT * FROM workflow_runs WHERE id = ?`).get(runId);
+  }
+
+  updateWorkflowRun(runId, fields) {
+    const sets = [];
+    const vals = [];
+    if (fields.status !== undefined) { sets.push('status = ?'); vals.push(fields.status); }
+    if (fields.current_step !== undefined) { sets.push('current_step = ?'); vals.push(fields.current_step); }
+    if (fields.context_json !== undefined) { sets.push('context_json = ?'); vals.push(typeof fields.context_json === 'string' ? fields.context_json : JSON.stringify(fields.context_json)); }
+    if (fields.completed_at !== undefined) { sets.push('completed_at = ?'); vals.push(fields.completed_at); }
+    if (sets.length === 0) return;
+    vals.push(runId);
+    this.db.prepare(`UPDATE workflow_runs SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  getWorkflowRunCount(workflowId) {
+    const row = this.db.prepare(`SELECT COUNT(*) as cnt FROM workflow_runs WHERE workflow_id = ?`).get(workflowId);
+    return row ? row.cnt : 0;
   }
 
   close() {
