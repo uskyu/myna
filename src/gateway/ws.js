@@ -4,6 +4,7 @@ const { getDatabase } = require('../db/index');
 class WSManager {
   constructor() {
     this.connections = new Map(); // agent_id -> Set<ws>
+    this.uiConnections = new Set(); // UI client connections (no auth needed for single-user)
   }
 
   init(server) {
@@ -11,9 +12,17 @@ class WSManager {
 
     this.wss.on('connection', async (ws, req) => {
       const db = getDatabase();
-      // Expect ?api_key=xxx in URL
       const url = new URL(req.url, 'http://localhost');
       const apiKey = url.searchParams.get('api_key');
+      const isUI = url.searchParams.get('ui') === '1';
+
+      // UI client connection (no auth for single-user mode)
+      if (isUI) {
+        this.uiConnections.add(ws);
+        ws.on('close', () => this.uiConnections.delete(ws));
+        ws.send(JSON.stringify({ type: 'connected', client: 'ui' }));
+        return;
+      }
 
       if (!apiKey) {
         ws.close(4001, 'api_key required');
@@ -35,7 +44,6 @@ class WSManager {
 
       console.log(`[WS] Agent "${agent.name}" connected`);
 
-      // Handle incoming messages from agent via WebSocket
       ws.on('message', (data) => {
         try {
           const msg = JSON.parse(data.toString());
@@ -54,7 +62,6 @@ class WSManager {
         }
       });
 
-      // Send welcome
       const rooms = await db.getAgentRooms(agent.id);
       ws.send(JSON.stringify({
         type: 'connected',
@@ -72,7 +79,6 @@ class WSManager {
         const { room_id, text, parse_mode, reply_to_message_id, mentions } = msg;
         if (!room_id || !text) return;
 
-        // Verify membership
         const rooms = await db.getAgentRooms(agent.id);
         if (!rooms.find(r => r.id === room_id)) return;
 
@@ -83,7 +89,6 @@ class WSManager {
           mentions || []
         );
 
-        // Broadcast to room members
         const members = await db.getRoomMembers(room_id);
         for (const member of members) {
           if (member.id !== agent.id) {
@@ -103,7 +108,6 @@ class WSManager {
           }
         }
 
-        // ACK back to sender
         this.notifyOne(agent.id, { type: 'message_sent', message_id: message.id, room_id });
         break;
       }
@@ -126,6 +130,7 @@ class WSManager {
     }
   }
 
+  // Notify agent connections
   notify(agentId, payload) {
     const conns = this.connections.get(agentId);
     if (!conns) return;
@@ -139,6 +144,16 @@ class WSManager {
 
   notifyOne(agentId, payload) {
     this.notify(agentId, payload);
+  }
+
+  // Notify all UI clients (for streaming, new messages, etc.)
+  notifyUI(payload) {
+    const data = JSON.stringify(payload);
+    for (const ws of this.uiConnections) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    }
   }
 
   broadcastToRoom(roomId, payload, excludeAgentId = null) {

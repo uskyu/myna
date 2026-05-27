@@ -71,7 +71,30 @@ class SQLiteAdapter extends DatabaseAdapter {
       CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id, id);
       CREATE INDEX IF NOT EXISTS idx_updates_agent ON updates(agent_id, consumed, id);
       CREATE INDEX IF NOT EXISTS idx_agents_api_key ON agents(api_key);
+
+      CREATE TABLE IF NOT EXISTS model_configs (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        model TEXT NOT NULL,
+        max_tokens INTEGER DEFAULT 2048,
+        temperature REAL DEFAULT 0.7,
+        is_default INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
     `);
+
+    // Add model_config_id column to agents if not exists
+    try { this.db.prepare(`ALTER TABLE agents ADD COLUMN model_config_id TEXT`).run(); } catch(e) {}
+    // Add params_json column to model_configs if not exists
+    try { this.db.prepare(`ALTER TABLE model_configs ADD COLUMN params_json TEXT`).run(); } catch(e) {}
+    try {
+      this.db.prepare(`ALTER TABLE agents ADD COLUMN model_config_id TEXT DEFAULT NULL`).run();
+    } catch (e) {
+      // Column already exists, ignore
+    }
   }
 
   createAgent(name, description = '') {
@@ -91,7 +114,7 @@ class SQLiteAdapter extends DatabaseAdapter {
   }
 
   listAgents() {
-    return this.db.prepare(`SELECT id, name, description, avatar, status, container_id, created_at FROM agents`).all();
+    return this.db.prepare(`SELECT id, name, description, avatar, status, container_id, model_config_id, created_at FROM agents`).all();
   }
 
   updateAgentStatus(id, status) {
@@ -202,10 +225,19 @@ class SQLiteAdapter extends DatabaseAdapter {
     this.db.prepare(`DELETE FROM updates WHERE consumed = 1 AND created_at < datetime('now', '-1 hour')`).run();
   }
 
-  // Update agent name/description
-  updateAgent(id, name, description) {
-    this.db.prepare(`UPDATE agents SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(name, description, id);
+  // Update agent name/description/status/model_config_id
+  updateAgent(id, fields) {
+    const sets = [];
+    const vals = [];
+    if (fields.name !== undefined) { sets.push('name = ?'); vals.push(fields.name); }
+    if (fields.description !== undefined) { sets.push('description = ?'); vals.push(fields.description); }
+    if (fields.status !== undefined) { sets.push('status = ?'); vals.push(fields.status); }
+    if (fields.model_config_id !== undefined) { sets.push('model_config_id = ?'); vals.push(fields.model_config_id || null); }
+    if (fields.sort_order !== undefined) { sets.push('container_id = ?'); vals.push(String(fields.sort_order)); }
+    if (sets.length === 0) return;
+    sets.push("updated_at = datetime('now')");
+    vals.push(id);
+    this.db.prepare(`UPDATE agents SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
 
   // Get DM room between two agents
@@ -221,6 +253,57 @@ class SQLiteAdapter extends DatabaseAdapter {
   // List all DM rooms
   listDMRooms() {
     return this.db.prepare(`SELECT * FROM rooms WHERE type = 'dm'`).all();
+  }
+
+  // === Model Configs ===
+  createModelConfig(config) {
+    const id = uuidv4();
+    this.db.prepare(`
+      INSERT INTO model_configs (id, name, provider, base_url, api_key, model, max_tokens, temperature, is_default, params_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, config.name, config.provider, config.base_url, config.api_key, config.model, config.max_tokens || 2048, config.temperature || 0.7, config.is_default ? 1 : 0, config.params_json || null);
+    if (config.is_default) {
+      this.db.prepare(`UPDATE model_configs SET is_default = 0 WHERE id != ?`).run(id);
+    }
+    return { id, ...config };
+  }
+
+  listModelConfigs() {
+    return this.db.prepare(`SELECT * FROM model_configs ORDER BY is_default DESC, created_at ASC`).all();
+  }
+
+  getModelConfig(id) {
+    return this.db.prepare(`SELECT * FROM model_configs WHERE id = ?`).get(id);
+  }
+
+  getDefaultModelConfig() {
+    return this.db.prepare(`SELECT * FROM model_configs WHERE is_default = 1`).get();
+  }
+
+  updateModelConfig(id, fields) {
+    const sets = [];
+    const vals = [];
+    for (const [key, val] of Object.entries(fields)) {
+      if (['name', 'provider', 'base_url', 'api_key', 'model', 'params_json'].includes(key)) {
+        sets.push(`${key} = ?`); vals.push(val);
+      } else if (key === 'max_tokens') {
+        sets.push('max_tokens = ?'); vals.push(val);
+      } else if (key === 'temperature') {
+        sets.push('temperature = ?'); vals.push(val);
+      } else if (key === 'is_default' && val) {
+        sets.push('is_default = 1');
+        this.db.prepare(`UPDATE model_configs SET is_default = 0 WHERE id != ?`).run(id);
+      }
+    }
+    if (sets.length === 0) return;
+    vals.push(id);
+    this.db.prepare(`UPDATE model_configs SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+
+  deleteModelConfig(id) {
+    this.db.prepare(`DELETE FROM model_configs WHERE id = ?`).run(id);
+    // Clear agents referencing this config
+    this.db.prepare(`UPDATE agents SET model_config_id = NULL WHERE model_config_id = ?`).run(id);
   }
 
   close() {

@@ -37,11 +37,15 @@ router.post('/agents', async (req, res) => {
 
 router.put('/agents/:id', async (req, res) => {
   const db = getDatabase();
-  const { name, description } = req.body;
+  const { name, description, status, sort_order, model_config_id } = req.body;
   if (!name) {
     return res.status(400).json({ ok: false, error: 'name is required' });
   }
-  await db.updateAgent(req.params.id, name, description || '');
+  const fields = { name, description: description || '' };
+  if (status !== undefined) fields.status = status;
+  if (sort_order !== undefined) fields.sort_order = sort_order;
+  if (model_config_id !== undefined) fields.model_config_id = model_config_id;
+  await db.updateAgent(req.params.id, fields);
   res.json({ ok: true });
 });
 
@@ -86,12 +90,16 @@ router.delete('/rooms/:id', async (req, res) => {
 // Room membership
 router.post('/rooms/:id/members', async (req, res) => {
   const db = getDatabase();
-  const { agent_id, role } = req.body;
-  if (!agent_id) {
-    return res.status(400).json({ ok: false, error: 'agent_id is required' });
+  const { agent_id, agent_ids, role } = req.body;
+  // Support batch addition
+  const ids = agent_ids || (agent_id ? [agent_id] : []);
+  if (ids.length === 0) {
+    return res.status(400).json({ ok: false, error: 'agent_id or agent_ids is required' });
   }
-  await db.addMember(req.params.id, agent_id, role || 'member');
-  res.json({ ok: true });
+  for (const id of ids) {
+    await db.addMember(req.params.id, id, role || 'member');
+  }
+  res.json({ ok: true, added: ids.length });
 });
 
 router.delete('/rooms/:id/members/:agent_id', async (req, res) => {
@@ -245,6 +253,104 @@ router.get('/dms', async (req, res) => {
     result.push({ ...dm, members, agent, last_message: lastMsg });
   }
   res.json({ ok: true, result });
+});
+
+// === Model Metadata (litellm context window data) ===
+let modelMetadataCache = null;
+let modelMetadataCacheTime = 0;
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+async function getModelMetadata() {
+  if (modelMetadataCache && (Date.now() - modelMetadataCacheTime < CACHE_TTL)) {
+    return modelMetadataCache;
+  }
+  try {
+    const resp = await fetch('https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json', {
+      signal: AbortSignal.timeout(15000)
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      // Transform to a simpler format: { model_id: { max_input_tokens, max_output_tokens, provider, supports_vision, supports_function_calling } }
+      const simplified = {};
+      for (const [key, val] of Object.entries(data)) {
+        if (key === 'sample_spec') continue;
+        simplified[key] = {
+          max_input_tokens: val.max_input_tokens || null,
+          max_output_tokens: val.max_output_tokens || null,
+          provider: val.litellm_provider || null,
+          supports_vision: !!val.supports_vision,
+          supports_function_calling: !!val.supports_function_calling
+        };
+      }
+      modelMetadataCache = simplified;
+      modelMetadataCacheTime = Date.now();
+      return simplified;
+    }
+  } catch(e) {
+    console.error('[Models] Failed to fetch litellm metadata:', e.message);
+  }
+  return modelMetadataCache || {};
+}
+
+// Get model info by ID (or search)
+router.get('/models/metadata', async (req, res) => {
+  const metadata = await getModelMetadata();
+  const { q, id } = req.query;
+  if (id) {
+    // Exact match or fuzzy match
+    const exact = metadata[id];
+    if (exact) return res.json({ ok: true, result: { [id]: exact } });
+    // Try partial match
+    const matches = {};
+    for (const [key, val] of Object.entries(metadata)) {
+      if (key.includes(id)) matches[key] = val;
+      if (Object.keys(matches).length >= 20) break;
+    }
+    return res.json({ ok: true, result: matches });
+  }
+  if (q) {
+    // Search models by name
+    const query = q.toLowerCase();
+    const matches = {};
+    for (const [key, val] of Object.entries(metadata)) {
+      if (key.toLowerCase().includes(query)) matches[key] = val;
+      if (Object.keys(matches).length >= 50) break;
+    }
+    return res.json({ ok: true, result: matches });
+  }
+  // Return count only if no query
+  res.json({ ok: true, total: Object.keys(metadata).length });
+});
+
+// === Model Configs ===
+router.get('/models', async (req, res) => {
+  const db = getDatabase();
+  const configs = db.listModelConfigs();
+  // Mask API keys in response
+  const safe = configs.map(c => ({ ...c, api_key: c.api_key ? '***' + c.api_key.slice(-4) : '' }));
+  res.json({ ok: true, result: safe });
+});
+
+router.post('/models', async (req, res) => {
+  const db = getDatabase();
+  const { name, provider, base_url, api_key, model, max_tokens, temperature, is_default } = req.body;
+  if (!name || !provider || !base_url || !api_key || !model) {
+    return res.status(400).json({ error: 'name, provider, base_url, api_key, model required' });
+  }
+  const config = db.createModelConfig({ name, provider, base_url, api_key, model, max_tokens, temperature, is_default });
+  res.json({ ok: true, result: config });
+});
+
+router.put('/models/:id', async (req, res) => {
+  const db = getDatabase();
+  db.updateModelConfig(req.params.id, req.body);
+  res.json({ ok: true });
+});
+
+router.delete('/models/:id', async (req, res) => {
+  const db = getDatabase();
+  db.deleteModelConfig(req.params.id);
+  res.json({ ok: true });
 });
 
 module.exports = router;

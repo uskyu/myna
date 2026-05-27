@@ -2,8 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
   <title>Hermes Hub</title>
+  <link rel="stylesheet" href="https://unpkg.com/lucide-static@0.460.0/font/lucide.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -68,15 +70,36 @@
     .chat-header .more-btn svg { width: 20px; height: 20px; display: block; }
     .messages-area { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
     .msg { max-width: 75%; padding: 10px 14px; border-radius: 18px; font-size: 15px; line-height: 1.4; word-break: break-word; }
-    .msg.other { align-self: flex-start; background: var(--surface); border: 0.5px solid var(--border); }
+    .msg.other { align-self: flex-start; background: var(--surface); border: 0.5px solid var(--border); max-width: 90%; }
     .msg.self { align-self: flex-end; background: var(--accent); color: white; }
     .msg .sender-name { font-size: 12px; color: var(--accent); font-weight: 500; margin-bottom: 3px; }
     .msg.self .sender-name { color: rgba(255,255,255,0.8); }
     .msg .msg-time { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
     .msg.self .msg-time { color: rgba(255,255,255,0.7); }
-    .msg .msg-text { white-space: pre-wrap; }
-    .msg .msg-text code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+    .msg .msg-text { white-space: normal; word-wrap: break-word; line-height: 1.6; }
+    .msg .msg-text p { margin: 0 0 8px 0; }
+    .msg .msg-text p:last-child { margin-bottom: 0; }
+    .msg .msg-text code { background: rgba(175,184,193,0.2); padding: 2px 5px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace; }
     .msg.self .msg-text code { background: rgba(255,255,255,0.2); }
+    .msg .msg-text pre { background: #1e1e2e; color: #cdd6f4; padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 10px 0; font-size: 13px; line-height: 1.6; }
+    .msg .msg-text pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+    .msg .msg-text ul, .msg .msg-text ol { padding-left: 1.5em; margin: 6px 0; }
+    .msg .msg-text li { margin: 3px 0; line-height: 1.6; }
+    .msg .msg-text h1, .msg .msg-text h2, .msg .msg-text h3 { font-size: 15px; font-weight: 600; margin: 10px 0 4px; }
+    .msg .msg-text blockquote { border-left: 3px solid var(--accent); padding: 6px 12px; margin: 8px 0; color: var(--text-dim); background: rgba(0,0,0,0.03); border-radius: 0 6px 6px 0; }
+    .msg .msg-text strong { font-weight: 600; }
+
+    /* Markdown table — GitHub style with scroll wrapper */
+    .msg .msg-text .table-wrapper { overflow-x: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; margin: 10px 0; border-radius: 8px; border: 1px solid var(--border); max-height: 300px; }
+    .msg .msg-text table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: 13px; line-height: 1.5; margin: 0; }
+    .msg .msg-text th, .msg .msg-text td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; white-space: nowrap; }
+    .msg .msg-text th { background: rgba(0,0,0,0.04); font-weight: 600; position: sticky; top: 0; z-index: 1; }
+    .msg .msg-text tbody tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+    .msg .msg-text tbody tr:hover { background: rgba(0,0,0,0.04); }
+    [data-theme="dark"] .msg .msg-text th { background: rgba(255,255,255,0.06); }
+    [data-theme="dark"] .msg .msg-text tbody tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+    [data-theme="dark"] .msg .msg-text tbody tr:hover { background: rgba(255,255,255,0.06); }
+    [data-theme="dark"] .msg .msg-text blockquote { background: rgba(255,255,255,0.04); }
     .typing-indicator { align-self: flex-start; padding: 10px 14px; border-radius: 18px; background: var(--surface); border: 0.5px solid var(--border); display: none; }
     .typing-indicator.active { display: block; }
     .typing-indicator .dots { display: flex; gap: 4px; }
@@ -84,6 +107,9 @@
     .typing-indicator .dots span:nth-child(2) { animation-delay: 0.2s; }
     .typing-indicator .dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+    .msg.streaming .msg-text { min-height: 20px; }
+    .stream-cursor { animation: blink 0.8s infinite; color: var(--primary); font-weight: bold; }
+    @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
 
     /* Input bar with @ and / support */
     .input-bar { padding: 8px 12px; background: var(--surface); border-top: 0.5px solid var(--border); display: flex; gap: 8px; align-items: flex-end; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0)); flex-shrink: 0; position: relative; }
@@ -202,6 +228,49 @@
     /* Toast */
     .toast { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; font-size: 14px; z-index: 999; animation: fadeIn 0.2s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+    /* Keyboard behavior */
+    .keyboard-open .bottom-nav { display: none; }
+    .chat-view .input-bar { position: sticky; bottom: 0; }
+
+    /* Sort bar & view controls */
+    .sort-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--surface); border-bottom: 0.5px solid var(--border); }
+    .sort-controls { display: flex; gap: 4px; }
+    .view-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; cursor: pointer; color: var(--text-dim); }
+    .view-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .view-btn i { font-size: 16px; }
+    .sort-bar select { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px; background: var(--surface); color: var(--text); }
+
+    /* Agent grid list view */
+    .agent-grid.list-view { grid-template-columns: 1fr; }
+    .agent-grid.list-view .agent-card { display: flex; align-items: center; text-align: left; padding: 12px 16px; gap: 12px; }
+    .agent-grid.list-view .agent-card .agent-avatar { margin: 0; }
+    .agent-grid.list-view .agent-card .agent-name { font-size: 15px; }
+    .agent-grid.list-view .agent-card .agent-desc { margin-top: 0; }
+    .agent-grid.list-view .agent-card .card-actions { margin-top: 0; margin-left: auto; flex-direction: row; }
+
+    /* Checkbox list (add members modal) */
+    .checkbox-list { max-height: 300px; overflow-y: auto; }
+    .checkbox-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 0.5px solid var(--border); cursor: pointer; }
+    .checkbox-item:active { background: var(--surface2); }
+    .checkbox-item .cb { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; }
+    .checkbox-item.checked .cb { background: var(--accent); border-color: var(--accent); }
+    .checkbox-item.checked .cb::after { content: ''; width: 6px; height: 10px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .checkbox-item .cb-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .checkbox-item .cb-avatar svg { width: 18px; height: 18px; color: white; }
+    .checkbox-item .cb-info { flex: 1; }
+    .checkbox-item .cb-name { font-size: 15px; font-weight: 500; }
+    .checkbox-item .cb-desc { font-size: 12px; color: var(--text-dim); }
+
+    /* Agent profile/info view */
+    .agent-profile { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); z-index: 51; }
+    .agent-profile.active { display: flex; }
+    .agent-profile-content { flex: 1; overflow-y: auto; padding: 20px 16px; }
+    .agent-profile .profile-section { background: var(--surface); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+    .agent-profile .profile-section h4 { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--text-dim); }
+    .agent-profile .profile-section .profile-list { font-size: 14px; line-height: 1.6; }
+    .agent-profile .profile-section .profile-list-item { padding: 6px 0; border-bottom: 0.5px solid var(--border); }
+    .agent-profile .profile-section .profile-list-item:last-child { border-bottom: none; }
   </style>
 </head>
 <body>
@@ -250,40 +319,95 @@
             <button onclick="showCreateAgent()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
           </div>
         </div>
+        <div class="sort-bar" id="agent-sort-bar">
+          <div class="sort-controls">
+            <button class="view-btn active" id="view-grid-btn" onclick="setAgentView('grid')"><i class="lucide-grid-2x2"></i> 卡片</button>
+            <button class="view-btn" id="view-list-btn" onclick="setAgentView('list')"><i class="lucide-list"></i> 列表</button>
+          </div>
+        </div>
         <div class="agent-grid" id="agent-grid"></div>
         <div class="empty" id="agents-empty" style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>
           <p>还没有智能体</p>
           <p>点击右上角 + 创建</p>
         </div>
-        <!-- Agent Detail View -->
+        <!-- Agent Detail View (redesigned: profile + edit + skills/knowledge) -->
         <div class="agent-detail" id="agent-detail">
           <div class="chat-header">
             <button class="back-btn" onclick="closeAgentDetail()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-            <span class="title">编辑智能体</span>
+            <span class="title" id="agent-detail-title">智能体详情</span>
+            <button class="back-btn" style="margin-left:auto" onclick="toggleAgentEdit()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
           </div>
           <div class="agent-detail-content">
-            <div class="avatar-large" id="agent-edit-avatar" style="background:linear-gradient(135deg,#667eea,#764ba2)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>
+            <!-- Top: Avatar + Name + Status -->
+            <div style="text-align:center;margin-bottom:20px">
+              <div class="avatar-large" id="agent-detail-avatar" style="background:linear-gradient(135deg,#667eea,#764ba2)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>
+              </div>
+              <div id="agent-detail-name" style="font-size:20px;font-weight:600;margin-top:8px"></div>
+              <div id="agent-detail-desc" style="font-size:14px;color:var(--text-dim);margin-top:4px"></div>
+              <div id="agent-detail-status" style="font-size:13px;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:6px"></div>
             </div>
-            <div class="field">
-              <label>名称</label>
-              <input type="text" id="agent-edit-name">
+
+            <!-- Edit Section (hidden by default) -->
+            <div id="agent-edit-section" style="display:none">
+              <div class="field">
+                <label>名称</label>
+                <input type="text" id="agent-edit-name">
+              </div>
+              <div class="field">
+                <label>描述 / 系统提示词</label>
+                <textarea id="agent-edit-desc" placeholder="定义智能体的角色和行为..."></textarea>
+              </div>
+              <div class="field">
+                <label>关联模型</label>
+                <select id="agent-edit-model" style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;font-size:15px;background:var(--surface);color:var(--text)">
+                  <option value="">使用默认配置</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>状态</label>
+                <div style="display:flex;align-items:center;gap:12px">
+                  <div class="toggle" id="agent-status-toggle" onclick="toggleAgentStatus()"></div>
+                  <span id="agent-status-label">在线</span>
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="saveAgent()" style="width:100%;margin-top:8px">保存修改</button>
             </div>
-            <div class="field">
-              <label>描述 / 系统提示词</label>
-              <textarea id="agent-edit-desc" placeholder="定义智能体的角色和行为..."></textarea>
+
+            <!-- Skills Section -->
+            <div class="profile-section">
+              <h4>🛠 技能</h4>
+              <div class="profile-list" id="agent-detail-skills">
+                <div class="hint">暂无技能</div>
+              </div>
             </div>
-            <div class="field">
-              <label>状态</label>
-              <input type="text" id="agent-edit-status" disabled>
+
+            <!-- Knowledge Section -->
+            <div class="profile-section">
+              <h4>📚 知识库</h4>
+              <div class="profile-list" id="agent-detail-knowledge">
+                <div class="hint">暂无知识库文件</div>
+              </div>
             </div>
-            <div class="btn-group">
-              <button class="btn btn-primary" onclick="saveAgent()">保存修改</button>
-              <button class="btn btn-danger" onclick="deleteAgent()">删除智能体</button>
+
+            <!-- Tools Section -->
+            <div class="profile-section">
+              <h4>⚙️ 工具</h4>
+              <div class="profile-list" id="agent-detail-tools">
+                <div class="profile-list-item">run_command — 执行系统命令</div>
+                <div class="profile-list-item">read_file — 读取文件内容</div>
+              </div>
+            </div>
+
+            <!-- Danger Zone -->
+            <div style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border)">
+              <button class="btn btn-danger" onclick="deleteAgent()" style="width:100%">删除智能体</button>
             </div>
           </div>
         </div>
+
+        <!-- Remove old agent-profile view (merged into agent-detail) -->
       </div>
 
       <!-- Page: Settings -->
@@ -302,16 +426,11 @@
           </div>
           <div class="settings-section">
             <div class="section-title">模型配置</div>
-            <div class="setting-item" onclick="showModelSetup()">
+            <div class="setting-item" onclick="showModelConfigs()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-              <span class="setting-label">API 配置</span>
-              <span class="setting-value" id="config-status">点击配置</span>
+              <span class="setting-label">供应商管理</span>
+              <span class="setting-value" id="model-config-count">0 个配置</span>
               <span class="chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></span>
-            </div>
-            <div class="setting-item" style="cursor:default">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-              <span class="setting-label">当前模型</span>
-              <span class="setting-value" id="current-model-display">-</span>
             </div>
           </div>
           <div class="settings-section">
@@ -344,7 +463,7 @@
   </div>
 
   <!-- Create Room Modal -->
-  <div class="modal-overlay" id="modal-room">
+  <div class="modal-overlay" id="modal-room" onclick="if(event.target===this)closeModals()">
     <div class="modal">
       <h3>创建群聊</h3>
       <input type="text" id="room-name" placeholder="群聊名称">
@@ -357,7 +476,7 @@
   </div>
 
   <!-- Create Agent Modal -->
-  <div class="modal-overlay" id="modal-agent">
+  <div class="modal-overlay" id="modal-agent" onclick="if(event.target===this)closeModals()">
     <div class="modal">
       <h3>创建智能体</h3>
       <input type="text" id="new-agent-name" placeholder="智能体名称">
@@ -369,51 +488,88 @@
     </div>
   </div>
 
-  <!-- Model Setup Modal -->
-  <div class="modal-overlay" id="modal-model-setup">
-    <div class="modal">
-      <h3>API 配置</h3>
-      <div class="tab-bar">
-        <div class="tab active" onclick="switchModelTab('fetch')">获取模型列表</div>
-        <div class="tab" onclick="switchModelTab('custom')">自定义模型</div>
+  <!-- Model Configs List Modal -->
+  <div class="modal-overlay" id="modal-model-configs" onclick="if(event.target===this)closeModals()">
+    <div class="modal" style="max-height:80vh;display:flex;flex-direction:column">
+      <h3>供应商管理</h3>
+      <div id="model-configs-list" style="flex:1;overflow-y:auto;margin-bottom:12px"></div>
+      <div class="btn-row">
+        <button class="btn btn-cancel" onclick="closeModals()">关闭</button>
+        <button class="btn btn-primary" onclick="showAddModelConfig()">添加供应商</button>
       </div>
-      <div id="model-tab-fetch">
-        <div class="hint">填写 API 地址和密钥后获取可用模型（已保存密钥可留空）</div>
-        <input type="url" id="setup-base-url" placeholder="API 地址 (如 https://api.openai.com/v1)">
-        <input type="password" id="setup-api-key" placeholder="API Key (留空使用已保存的密钥)">
-        <div id="model-fetch-status"></div>
-        <button class="btn btn-primary" id="fetch-models-btn" onclick="fetchModels()" style="margin-bottom:12px">获取模型列表</button>
-        <div id="model-list-container" style="display:none">
-          <div class="hint">选择模型：</div>
-          <div class="model-list" id="model-list"></div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Model Config Modal -->
+  <div class="modal-overlay" id="modal-model-edit" onclick="if(event.target===this)closeModals()">
+    <div class="modal" style="max-height:85vh;overflow-y:auto">
+      <h3 id="model-edit-title">添加供应商</h3>
+      <input type="text" id="mc-name" placeholder="配置名称 (如 OpenAI, Claude, 本地)">
+      <input type="text" id="mc-provider" placeholder="供应商 (openai / anthropic / custom)">
+      <input type="url" id="mc-base-url" placeholder="API 地址 (如 https://api.openai.com/v1)">
+      <input type="password" id="mc-api-key" placeholder="API Key">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" id="mc-model" placeholder="模型名称 (如 gpt-4o, claude-3-opus)" style="flex:1" oninput="debounceModelLookup()">
+        <button class="btn btn-small" id="mc-fetch-btn" onclick="fetchModelList()" style="white-space:nowrap;padding:8px 12px;font-size:13px">获取列表</button>
+      </div>
+      <div id="mc-model-list" style="display:none;max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-top:4px"></div>
+      <div id="mc-fetch-status" style="font-size:12px;margin-top:4px"></div>
+      <div id="mc-official-hint" style="display:none;font-size:12px;color:var(--success);margin-top:4px;padding:6px 10px;background:var(--accent-light);border-radius:6px"></div>
+
+      <div style="margin-top:12px;padding-top:12px;border-top:0.5px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:600;color:var(--text-dim)">上下文与生成参数</span>
+          <span id="mc-params-source" style="font-size:11px;color:var(--text-dim)"></span>
+        </div>
+        <div style="display:flex;gap:12px">
+          <div style="flex:1"><label style="font-size:12px;color:var(--text-dim)">Context Length</label><input type="number" id="mc-context-length" placeholder="上下文长度" value="4096"></div>
+          <div style="flex:1"><label style="font-size:12px;color:var(--text-dim)">Max Tokens</label><input type="number" id="mc-max-tokens" placeholder="最大输出" value="2048"></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:8px">
+          <div style="flex:1"><label style="font-size:12px;color:var(--text-dim)">Temperature</label><input type="number" id="mc-temperature" value="0.7" step="0.1" min="0" max="2"></div>
+          <div style="flex:1"><label style="font-size:12px;color:var(--text-dim)">Top P</label><input type="number" id="mc-top-p" value="1" step="0.05" min="0" max="1"></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:8px">
+          <div style="flex:1"><label style="font-size:12px;color:var(--text-dim)">Frequency Penalty</label><input type="number" id="mc-freq-penalty" value="0" step="0.1" min="-2" max="2"></div>
+          <div style="flex:1"><label style="font-size:12px;color:var(--text-dim)">Presence Penalty</label><input type="number" id="mc-pres-penalty" value="0" step="0.1" min="-2" max="2"></div>
         </div>
       </div>
-      <div id="model-tab-custom" style="display:none">
-        <div class="hint">手动输入模型名称</div>
-        <input type="url" id="setup-base-url-2" placeholder="API 地址 (如 https://api.openai.com/v1)">
-        <input type="password" id="setup-api-key-2" placeholder="API Key (留空使用已保存的密钥)">
-        <input type="text" id="setup-custom-model" placeholder="模型名称 (如 gpt-4o, claude-3-opus)">
+
+      <div style="display:flex;align-items:center;gap:8px;margin-top:12px">
+        <input type="checkbox" id="mc-is-default"> <label for="mc-is-default" style="font-size:14px;color:var(--text-dim)">设为默认配置</label>
       </div>
       <div class="btn-row">
-        <button class="btn btn-cancel" onclick="closeModals()">取消</button>
-        <button class="btn btn-primary" onclick="saveModelSetup()">保存配置</button>
+        <button class="btn btn-cancel" onclick="closeModelEdit()">取消</button>
+        <button class="btn btn-primary" onclick="saveModelConfig()">保存</button>
       </div>
     </div>
   </div>
 
   <!-- Room Settings Modal -->
-  <div class="modal-overlay" id="modal-room-settings">
+  <div class="modal-overlay" id="modal-room-settings" onclick="if(event.target===this)closeModals()">
     <div class="modal">
       <h3 id="room-settings-title">群聊设置</h3>
       <div id="room-members-list" style="margin-bottom:12px"></div>
-      <select id="add-member-select" style="width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-size:15px;background:var(--surface2);color:var(--text);margin-bottom:8px"></select>
-      <div class="btn-row">
+      <button class="btn btn-primary" onclick="showAddMembers()" id="btn-show-add-members">添加智能体</button>
+      <div class="btn-row" style="margin-top:12px">
         <button class="btn btn-cancel" onclick="closeModals()">关闭</button>
-        <button class="btn btn-primary" onclick="addMemberToRoom()">添加成员</button>
       </div>
       <button class="btn btn-danger" onclick="deleteCurrentRoom()" style="margin-top:10px">删除群聊</button>
     </div>
   </div>
+
+  <!-- Add Members Modal -->
+  <div class="modal-overlay" id="modal-add-members" onclick="if(event.target===this)closeModals()">
+    <div class="modal">
+      <h3>添加智能体</h3>
+      <div class="checkbox-list" id="add-members-list"></div>
+      <div class="btn-row">
+        <button class="btn btn-cancel" onclick="closeModals()">取消</button>
+        <button class="btn btn-primary" onclick="confirmAddMembers()">确认添加</button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

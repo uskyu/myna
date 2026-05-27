@@ -9,6 +9,8 @@ let pollTimer = null;
 let selectedModel = '';
 let modelTab = 'fetch';
 let isWaitingReply = false;
+let ws = null;
+let activeStreams = {}; // streamId -> { roomId, agentId, agentName, text }
 
 const AVATAR_COLORS = [
   'linear-gradient(135deg, #667eea, #764ba2)',
@@ -41,6 +43,22 @@ const SLASH_COMMANDS = [
 function getAgentColor(idx) { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 function getAgentIcon(idx) { return AGENT_ICONS[idx % AGENT_ICONS.length]; }
 function escapeHtml(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  if (typeof marked !== 'undefined' && marked.parse) {
+    try {
+      marked.setOptions({ breaks: true, gfm: true });
+      let html = marked.parse(text);
+      // Wrap tables in scrollable container
+      html = html.replace(/<table>/g, '<div class="table-wrapper"><table>').replace(/<\/table>/g, '</table></div>');
+      return html;
+    } catch (e) {
+      return escapeHtml(text);
+    }
+  }
+  return escapeHtml(text);
+}
 
 function showToast(msg) {
   const t = document.createElement('div');
@@ -80,7 +98,7 @@ function switchPage(page) {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (page === 'chats') loadConversations();
   if (page === 'agents') loadAgents();
-  if (page === 'settings') loadConfig();
+  if (page === 'settings') loadModelConfigs();
 }
 
 // ===== CONVERSATIONS (Groups + DMs) =====
@@ -169,6 +187,9 @@ function closeChat() {
 
 async function refreshMessages() {
   if (!currentRoomId) return;
+  // Don't refresh while streaming — the WS handles live updates
+  if (Object.keys(activeStreams).some(k => activeStreams[k].roomId === currentRoomId)) return;
+  
   const data = await api('GET', '/admin/rooms/' + currentRoomId + '/messages?limit=100');
   const msgs = data.result || [];
   const area = document.getElementById('messages-area');
@@ -187,9 +208,10 @@ async function refreshMessages() {
   let html = msgs.map(m => {
     const self = m.sender_id === 'user' || m.sender_id === 'system';
     const showName = !self && currentRoomType === 'group';
+    const rendered = self ? escapeHtml(m.text) : renderMarkdown(m.text);
     return '<div class="msg '+(self?'self':'other')+'">'+
       (showName ? '<div class="sender-name">'+escapeHtml(m.sender_name)+'</div>' : '')+
-      '<div class="msg-text">'+escapeHtml(m.text)+'</div>'+
+      '<div class="msg-text">'+rendered+'</div>'+
       '<div class="msg-time">'+(m.created_at||'').slice(11,16)+'</div></div>';
   }).join('');
   
@@ -223,20 +245,28 @@ async function sendMsg() {
     if (agent) mentions.push(agent.id);
   }
 
-  // Show typing indicator
-  isWaitingReply = true;
-  document.getElementById('typing-indicator').classList.add('active');
+  // Immediately show user's message in the chat (optimistic UI)
   const area = document.getElementById('messages-area');
+  const indicator = document.getElementById('typing-indicator');
+  const bubble = document.createElement('div');
+  bubble.className = 'msg self';
+  bubble.innerHTML = '<div class="msg-text">' + escapeHtml(text) + '</div>' +
+    '<div class="msg-time">' + new Date().toTimeString().slice(0, 5) + '</div>';
+  area.insertBefore(bubble, indicator);
+  area.scrollTop = area.scrollHeight;
+
+  // Show typing indicator (three dots)
+  isWaitingReply = true;
+  indicator.classList.add('active');
   area.scrollTop = area.scrollHeight;
 
   await api('POST', '/admin/rooms/' + currentRoomId + '/send', { text, mentions });
-  refreshMessages();
 
-  // Auto-hide typing after 30s max
+  // Auto-hide typing after 60s max
   setTimeout(() => {
     isWaitingReply = false;
     document.getElementById('typing-indicator').classList.remove('active');
-  }, 30000);
+  }, 60000);
 }
 
 function handleSlashCommand(text) {
@@ -391,15 +421,16 @@ function renderAgents() {
   const empty = document.getElementById('agents-empty');
   if (!agents.length) { el.innerHTML = ''; empty.style.display = 'flex'; return; }
   empty.style.display = 'none';
-  el.innerHTML = agents.map((a, i) => {
-    return '<div class="agent-card">'+
-      '<div class="agent-avatar" style="background:'+getAgentColor(i)+'">'+getAgentIcon(i)+'</div>'+
-      '<div class="agent-name">'+escapeHtml(a.name)+'</div>'+
-      '<div class="agent-desc">'+escapeHtml(a.description||'通用智能体')+'</div>'+
-      '<div class="agent-status"><span class="dot '+(a.status==='online'?'online':'offline')+'"></span>'+(a.status==='online'?'在线':'离线')+'</div>'+
-      '<div class="card-actions">'+
-        '<button class="btn-chat" onclick="event.stopPropagation();startDM(\''+a.id+'\')">发消息</button>'+
-        '<button class="btn-edit" onclick="event.stopPropagation();openAgentDetail(\''+a.id+'\')">编辑</button>'+
+  const sorted = getSortedAgents();
+  el.innerHTML = sorted.map((a) => {
+    const i = agents.indexOf(a);
+    return '<div class="agent-card" onclick="openAgentDetail(\'' + a.id + '\')">' +
+      '<div class="agent-avatar" style="background:' + getAgentColor(i) + '">' + getAgentIcon(i) + '</div>' +
+      '<div class="agent-name">' + escapeHtml(a.name) + '</div>' +
+      '<div class="agent-desc">' + escapeHtml(a.description || '通用智能体') + '</div>' +
+      '<div class="agent-status"><span class="dot ' + (a.status === 'online' ? 'online' : 'offline') + '"></span>' + (a.status === 'online' ? '在线' : '离线') + '</div>' +
+      '<div class="card-actions">' +
+        '<button class="btn-chat" onclick="event.stopPropagation();startDM(\'' + a.id + '\')">发消息</button>' +
       '</div></div>';
   }).join('');
 }
@@ -421,12 +452,51 @@ function openAgentDetail(id) {
   if (!agent) return;
   currentAgentId = id;
   const idx = agents.indexOf(agent);
-  document.getElementById('agent-edit-avatar').style.background = getAgentColor(idx);
-  document.getElementById('agent-edit-avatar').innerHTML = getAgentIcon(idx);
+  
+  // Fill profile info
+  document.getElementById('agent-detail-avatar').style.background = getAgentColor(idx);
+  document.getElementById('agent-detail-avatar').innerHTML = getAgentIcon(idx);
+  document.getElementById('agent-detail-name').textContent = agent.name;
+  document.getElementById('agent-detail-desc').textContent = agent.description || '通用智能体';
+  document.getElementById('agent-detail-title').textContent = agent.name;
+  document.getElementById('agent-detail-status').innerHTML = '<span class="dot ' + (agent.status === 'online' ? 'online' : 'offline') + '"></span>' + (agent.status === 'online' ? '在线' : '离线');
+  
+  // Fill edit fields
   document.getElementById('agent-edit-name').value = agent.name;
   document.getElementById('agent-edit-desc').value = agent.description || '';
-  document.getElementById('agent-edit-status').value = agent.status === 'online' ? '在线' : '离线';
+  editAgentStatus = agent.status || 'online';
+  const toggle = document.getElementById('agent-status-toggle');
+  const label = document.getElementById('agent-status-label');
+  if (toggle) toggle.classList.toggle('on', editAgentStatus === 'online');
+  if (label) label.textContent = editAgentStatus === 'online' ? '在线' : '离线';
+  
+  // Hide edit section by default
+  document.getElementById('agent-edit-section').style.display = 'none';
+  
+  // Load model configs for the select dropdown
+  loadAgentModelSelect(agent.model_config_id);
+  
   document.getElementById('agent-detail').classList.add('active');
+}
+
+function toggleAgentEdit() {
+  const section = document.getElementById('agent-edit-section');
+  section.style.display = section.style.display === 'none' ? 'block' : 'none';
+}
+
+async function loadAgentModelSelect(currentConfigId) {
+  const select = document.getElementById('agent-edit-model');
+  select.innerHTML = '<option value="">使用默认配置</option>';
+  const data = await api('GET', '/admin/models');
+  if (data.ok && data.result) {
+    data.result.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.name + ' (' + c.model + ')';
+      if (c.id === currentConfigId) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
 }
 
 function closeAgentDetail() {
@@ -438,11 +508,14 @@ async function saveAgent() {
   if (!currentAgentId) return;
   const name = document.getElementById('agent-edit-name').value.trim();
   const desc = document.getElementById('agent-edit-desc').value.trim();
+  const modelConfigId = document.getElementById('agent-edit-model').value || null;
   if (!name) { showToast('名称不能为空'); return; }
-  await api('PUT', '/admin/agents/' + currentAgentId, { name, description: desc });
+  await api('PUT', '/admin/agents/' + currentAgentId, { name, description: desc, status: editAgentStatus, model_config_id: modelConfigId });
   showToast('已保存');
-  closeAgentDetail();
+  document.getElementById('agent-edit-section').style.display = 'none';
   loadAgents();
+  // Refresh detail view
+  setTimeout(() => openAgentDetail(currentAgentId), 200);
 }
 
 async function deleteAgent() {
@@ -454,100 +527,228 @@ async function deleteAgent() {
   loadAgents();
 }
 
-// ===== CONFIG =====
-async function loadConfig() {
-  const data = await api('GET', '/admin/config');
+// ===== MODEL CONFIGS (Multi-provider) =====
+let modelConfigs = [];
+let editingModelConfigId = null;
+
+async function loadModelConfigs() {
+  const data = await api('GET', '/admin/models');
   if (data.ok) {
-    const c = data.result;
-    document.getElementById('current-model-display').textContent = c.model || '-';
-    document.getElementById('config-status').textContent = c.has_key ? '已配置' : '点击配置';
+    modelConfigs = data.result || [];
+    const countEl = document.getElementById('model-config-count');
+    if (countEl) countEl.textContent = modelConfigs.length + ' 个配置';
   }
 }
 
-function showModelSetup() {
-  api('GET', '/admin/config').then(data => {
-    if (data.ok) {
-      document.getElementById('setup-base-url').value = data.result.base_url || '';
-      document.getElementById('setup-base-url-2').value = data.result.base_url || '';
-      document.getElementById('setup-api-key').value = '';
-      document.getElementById('setup-api-key-2').value = '';
-      document.getElementById('setup-api-key').placeholder = data.result.has_key ? 'API Key (留空使用已保存的密钥)' : 'API Key (sk-...)';
-      document.getElementById('setup-api-key-2').placeholder = data.result.has_key ? 'API Key (留空使用已保存的密钥)' : 'API Key (sk-...)';
-      document.getElementById('setup-custom-model').value = data.result.model || '';
-    }
+function showModelConfigs() {
+  loadModelConfigs().then(() => {
+    renderModelConfigsList();
+    document.getElementById('modal-model-configs').classList.add('active');
   });
-  document.getElementById('model-list-container').style.display = 'none';
-  document.getElementById('model-fetch-status').innerHTML = '';
-  selectedModel = '';
-  switchModelTab('fetch');
-  document.getElementById('modal-model-setup').classList.add('active');
 }
 
-function switchModelTab(tab) {
-  modelTab = tab;
-  document.getElementById('model-tab-fetch').style.display = tab === 'fetch' ? 'block' : 'none';
-  document.getElementById('model-tab-custom').style.display = tab === 'custom' ? 'block' : 'none';
-  document.querySelectorAll('#modal-model-setup .tab').forEach((t, i) => t.classList.toggle('active', (i === 0 && tab === 'fetch') || (i === 1 && tab === 'custom')));
-}
-
-async function fetchModels() {
-  const baseUrl = document.getElementById('setup-base-url').value.trim();
-  const apiKey = document.getElementById('setup-api-key').value.trim();
-  document.getElementById('fetch-models-btn').disabled = true;
-  document.getElementById('fetch-models-btn').innerHTML = '<span class="spinner"></span> 获取中...';
-  const body = {};
-  if (baseUrl) body.base_url = baseUrl;
-  if (apiKey) body.api_key = apiKey;
-  const data = await api('POST', '/admin/config/models', body);
-  document.getElementById('fetch-models-btn').disabled = false;
-  document.getElementById('fetch-models-btn').textContent = '获取模型列表';
-  if (data.ok && data.result.length > 0) {
-    document.getElementById('model-fetch-status').innerHTML = '<div class="status-msg success">获取到 '+data.result.length+' 个模型</div>';
-    renderModelList(data.result);
-    document.getElementById('model-list-container').style.display = 'block';
-  } else if (data.ok) {
-    document.getElementById('model-fetch-status').innerHTML = '<div class="status-msg error">未获取到模型</div>';
-  } else {
-    document.getElementById('model-fetch-status').innerHTML = '<div class="status-msg error">'+(data.error||'获取失败')+'</div>';
+function renderModelConfigsList() {
+  const el = document.getElementById('model-configs-list');
+  if (!modelConfigs.length) {
+    el.innerHTML = '<div class="hint" style="text-align:center;padding:20px">暂无模型配置<br>点击下方按钮添加</div>';
+    return;
   }
-}
-
-function renderModelList(models) {
-  const el = document.getElementById('model-list');
-  el.innerHTML = models.map(m =>
-    '<div class="model-item" onclick="selectModel(\''+m.id.replace(/'/g, "\\'")+'\')">' +
-    '<span class="check"></span><span>'+escapeHtml(m.name)+'</span></div>'
+  el.innerHTML = modelConfigs.map(c => 
+    '<div style="display:flex;align-items:center;padding:12px;border-bottom:0.5px solid var(--border);gap:12px">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-weight:600;font-size:15px">' + escapeHtml(c.name) + (c.is_default ? ' <span style="font-size:11px;background:var(--accent);color:white;padding:2px 6px;border-radius:4px">默认</span>' : '') + '</div>' +
+        '<div style="font-size:13px;color:var(--text-dim);margin-top:2px">' + escapeHtml(c.provider) + ' · ' + escapeHtml(c.model) + '</div>' +
+      '</div>' +
+      '<button onclick="editModelConfig(\'' + c.id + '\')" style="background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer">编辑</button>' +
+      '<button onclick="deleteModelConfig(\'' + c.id + '\')" style="background:none;border:none;color:#e53e3e;font-size:14px;cursor:pointer">删除</button>' +
+    '</div>'
   ).join('');
 }
 
-function selectModel(id) {
-  selectedModel = id;
-  document.querySelectorAll('.model-item').forEach(el => {
-    el.classList.toggle('selected', el.querySelector('span:last-child').textContent === id);
-  });
+function showAddModelConfig() {
+  editingModelConfigId = null;
+  document.getElementById('model-edit-title').textContent = '添加供应商';
+  document.getElementById('mc-name').value = '';
+  document.getElementById('mc-provider').value = '';
+  document.getElementById('mc-base-url').value = '';
+  document.getElementById('mc-api-key').value = '';
+  document.getElementById('mc-api-key').placeholder = 'API Key';
+  document.getElementById('mc-model').value = '';
+  document.getElementById('mc-context-length').value = '4096';
+  document.getElementById('mc-max-tokens').value = '2048';
+  document.getElementById('mc-temperature').value = '0.7';
+  document.getElementById('mc-top-p').value = '1';
+  document.getElementById('mc-freq-penalty').value = '0';
+  document.getElementById('mc-pres-penalty').value = '0';
+  document.getElementById('mc-is-default').checked = modelConfigs.length === 0;
+  document.getElementById('mc-model-list').style.display = 'none';
+  document.getElementById('mc-fetch-status').innerHTML = '';
+  document.getElementById('modal-model-edit').classList.add('active');
 }
 
-async function saveModelSetup() {
-  let baseUrl, apiKey, model;
-  if (modelTab === 'fetch') {
-    baseUrl = document.getElementById('setup-base-url').value.trim();
-    apiKey = document.getElementById('setup-api-key').value.trim();
-    model = selectedModel;
-  } else {
-    baseUrl = document.getElementById('setup-base-url-2').value.trim();
-    apiKey = document.getElementById('setup-api-key-2').value.trim();
-    model = document.getElementById('setup-custom-model').value.trim();
+function editModelConfig(id) {
+  const c = modelConfigs.find(x => x.id === id);
+  if (!c) return;
+  editingModelConfigId = id;
+  document.getElementById('model-edit-title').textContent = '编辑供应商';
+  document.getElementById('mc-name').value = c.name;
+  document.getElementById('mc-provider').value = c.provider;
+  document.getElementById('mc-base-url').value = c.base_url;
+  document.getElementById('mc-api-key').value = '';
+  document.getElementById('mc-api-key').placeholder = 'API Key (留空不修改, 当前: ' + (c.api_key || '***') + ')';
+  document.getElementById('mc-model').value = c.model;
+  const params = c.params_json ? (typeof c.params_json === 'string' ? JSON.parse(c.params_json) : c.params_json) : {};
+  document.getElementById('mc-context-length').value = params.context_length || c.context_length || 4096;
+  document.getElementById('mc-max-tokens').value = params.max_tokens || c.max_tokens || 2048;
+  document.getElementById('mc-temperature').value = params.temperature !== undefined ? params.temperature : (c.temperature !== undefined ? c.temperature : 0.7);
+  document.getElementById('mc-top-p').value = params.top_p !== undefined ? params.top_p : 1;
+  document.getElementById('mc-freq-penalty').value = params.frequency_penalty || 0;
+  document.getElementById('mc-pres-penalty').value = params.presence_penalty || 0;
+  document.getElementById('mc-is-default').checked = !!c.is_default;
+  document.getElementById('mc-model-list').style.display = 'none';
+  document.getElementById('mc-fetch-status').innerHTML = '';
+  document.getElementById('modal-model-edit').classList.add('active');
+}
+
+async function fetchModelList() {
+  const baseUrl = document.getElementById('mc-base-url').value.trim();
+  const apiKey = document.getElementById('mc-api-key').value.trim();
+  if (!baseUrl) { showToast('请先填写 API 地址'); return; }
+  const btn = document.getElementById('mc-fetch-btn');
+  btn.disabled = true;
+  btn.textContent = '获取中...';
+  document.getElementById('mc-fetch-status').innerHTML = '';
+  try {
+    const body = { base_url: baseUrl };
+    if (apiKey) body.api_key = apiKey;
+    const data = await api('POST', '/admin/config/models', body);
+    btn.disabled = false;
+    btn.textContent = '获取列表';
+    if (data.ok && data.result && data.result.length > 0) {
+      document.getElementById('mc-fetch-status').innerHTML = '<span style="color:var(--success)">获取到 ' + data.result.length + ' 个模型</span>';
+      const listEl = document.getElementById('mc-model-list');
+      listEl.style.display = 'block';
+      listEl.innerHTML = data.result.map(m =>
+        '<div style="padding:8px 12px;cursor:pointer;border-bottom:0.5px solid var(--border);font-size:14px" onclick="selectFetchedModel(\'' + escapeHtml(m.id).replace(/'/g, "\\'") + '\')">' + escapeHtml(m.id) + '</div>'
+      ).join('');
+    } else {
+      document.getElementById('mc-fetch-status').innerHTML = '<span style="color:var(--danger)">' + (data.error || '未获取到模型') + '</span>';
+      document.getElementById('mc-model-list').style.display = 'none';
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.textContent = '获取列表';
+    document.getElementById('mc-fetch-status').innerHTML = '<span style="color:var(--danger)">请求失败</span>';
   }
-  if (!baseUrl && !model) { showToast('请至少填写 API 地址或模型名称'); return; }
-  const body = {};
-  if (baseUrl) body.base_url = baseUrl;
-  if (apiKey) body.api_key = apiKey;
-  if (model) body.model = model;
-  try { const host = new URL(baseUrl).hostname.split('.')[0]; body.provider_name = host; }
-  catch(e) { body.provider_name = 'custom'; }
-  const data = await api('POST', '/admin/config', body);
-  if (data.ok) { closeModals(); loadConfig(); showToast('配置已保存'); }
-  else { showToast(data.error || '保存失败'); }
+}
+
+function selectFetchedModel(id) {
+  document.getElementById('mc-model').value = id;
+  document.getElementById('mc-model-list').style.display = 'none';
+  document.getElementById('mc-fetch-status').innerHTML = '<span style="color:var(--success)">已选择: ' + escapeHtml(id) + '</span>';
+  // Auto-lookup official params
+  lookupModelMetadata(id);
+}
+
+// === Model Metadata Auto-fill ===
+let modelLookupTimer = null;
+
+function debounceModelLookup() {
+  if (modelLookupTimer) clearTimeout(modelLookupTimer);
+  modelLookupTimer = setTimeout(() => {
+    const model = document.getElementById('mc-model').value.trim();
+    if (model.length >= 3) lookupModelMetadata(model);
+  }, 600);
+}
+
+async function lookupModelMetadata(modelId) {
+  const hintEl = document.getElementById('mc-official-hint');
+  const sourceEl = document.getElementById('mc-params-source');
+  try {
+    const data = await api('GET', '/admin/models/metadata?id=' + encodeURIComponent(modelId));
+    if (data.ok && data.result) {
+      const keys = Object.keys(data.result);
+      if (keys.length === 0) {
+        hintEl.style.display = 'none';
+        sourceEl.textContent = '手动配置';
+        return;
+      }
+      // Use exact match first, otherwise first result
+      const matchKey = data.result[modelId] ? modelId : keys[0];
+      const info = data.result[matchKey];
+      
+      if (info.max_input_tokens) {
+        document.getElementById('mc-context-length').value = info.max_input_tokens;
+      }
+      if (info.max_output_tokens) {
+        document.getElementById('mc-max-tokens').value = info.max_output_tokens;
+      }
+      
+      hintEl.style.display = 'block';
+      hintEl.innerHTML = '✓ 已匹配 <b>' + escapeHtml(matchKey) + '</b> — 上下文 ' + 
+        (info.max_input_tokens ? (info.max_input_tokens / 1000) + 'K' : '?') + 
+        '，最大输出 ' + (info.max_output_tokens ? (info.max_output_tokens / 1000) + 'K' : '?') +
+        (info.supports_vision ? ' · 支持视觉' : '') +
+        (info.supports_function_calling ? ' · 支持工具' : '');
+      sourceEl.textContent = '官方推荐值 (可手动修改)';
+    } else {
+      hintEl.style.display = 'none';
+      sourceEl.textContent = '手动配置';
+    }
+  } catch(e) {
+    hintEl.style.display = 'none';
+    sourceEl.textContent = '手动配置';
+  }
+}
+
+function closeModelEdit() {
+  document.getElementById('modal-model-edit').classList.remove('active');
+}
+
+async function saveModelConfig() {
+  const name = document.getElementById('mc-name').value.trim();
+  const provider = document.getElementById('mc-provider').value.trim();
+  const base_url = document.getElementById('mc-base-url').value.trim();
+  const api_key = document.getElementById('mc-api-key').value.trim();
+  const model = document.getElementById('mc-model').value.trim();
+  const context_length = parseInt(document.getElementById('mc-context-length').value) || 4096;
+  const max_tokens = parseInt(document.getElementById('mc-max-tokens').value) || 2048;
+  const temperature = parseFloat(document.getElementById('mc-temperature').value) || 0.7;
+  const top_p = parseFloat(document.getElementById('mc-top-p').value);
+  const frequency_penalty = parseFloat(document.getElementById('mc-freq-penalty').value) || 0;
+  const presence_penalty = parseFloat(document.getElementById('mc-pres-penalty').value) || 0;
+  const is_default = document.getElementById('mc-is-default').checked;
+
+  if (!name || !provider || !base_url || !model) {
+    showToast('请填写名称、供应商、API地址和模型');
+    return;
+  }
+
+  const params_json = JSON.stringify({ context_length, max_tokens, temperature, top_p, frequency_penalty, presence_penalty });
+
+  if (editingModelConfigId) {
+    // Update
+    const body = { name, provider, base_url, model, params_json, is_default };
+    if (api_key) body.api_key = api_key;
+    await api('PUT', '/admin/models/' + editingModelConfigId, body);
+    showToast('已更新');
+  } else {
+    // Create
+    if (!api_key) { showToast('新配置需要填写 API Key'); return; }
+    await api('POST', '/admin/models', { name, provider, base_url, api_key, model, params_json, is_default });
+    showToast('已添加');
+  }
+  closeModelEdit();
+  await loadModelConfigs();
+  renderModelConfigsList();
+}
+
+async function deleteModelConfig(id) {
+  if (!confirm('确定删除该模型配置？关联的智能体将使用默认配置。')) return;
+  await api('DELETE', '/admin/models/' + id);
+  showToast('已删除');
+  await loadModelConfigs();
+  renderModelConfigsList();
 }
 
 // ===== MODALS =====
@@ -576,7 +777,6 @@ async function createAgent() {
 // Room settings
 async function showRoomSettings() {
   if (!currentRoomId) return;
-  // Refresh room data to get latest members
   const roomData = await api('GET', '/admin/rooms');
   rooms = (roomData.result || []).filter(r => r.type !== 'dm');
   const room = rooms.find(r => r.id === currentRoomId);
@@ -598,27 +798,50 @@ async function showRoomSettings() {
         (isSystem ? '' : '<button onclick="removeMember(\'' + m.id + '\')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;padding:4px 8px">移除</button>') +
       '</div>';
     }).join('');
-  const select = document.getElementById('add-member-select');
+  // Show/hide add button based on available agents
   const available = agents.filter(a => !members.find(m => m.id === a.id));
-  select.innerHTML = available.length ?
-    available.map(a => '<option value="' + a.id + '">' + escapeHtml(a.name) + '</option>').join('') :
-    '<option disabled>所有智能体已在群中</option>';
+  const addBtn = document.getElementById('btn-show-add-members');
+  if (addBtn) addBtn.style.display = available.length ? '' : 'none';
   document.getElementById('modal-room-settings').classList.add('active');
+}
+
+// Show multi-select add members modal
+function showAddMembers() {
+  if (!currentRoomId) return;
+  const room = rooms.find(r => r.id === currentRoomId);
+  const members = room ? (room.members || []) : [];
+  const available = agents.filter(a => !members.find(m => m.id === a.id));
+  const list = document.getElementById('add-members-list');
+  if (!available.length) { showToast('所有智能体已在群中'); return; }
+  list.innerHTML = available.map((a, i) => {
+    const idx = agents.indexOf(a);
+    const color = getAgentColor(idx);
+    const icon = getAgentIcon(idx);
+    return '<div class="checkbox-item" data-id="' + a.id + '" onclick="this.classList.toggle(\'checked\')">' +
+      '<div class="cb"></div>' +
+      '<div class="cb-avatar" style="background:' + color + '">' + icon + '</div>' +
+      '<div class="cb-info"><div class="cb-name">' + escapeHtml(a.name) + '</div>' +
+      '<div class="cb-desc">' + escapeHtml(a.description || '通用智能体') + '</div></div></div>';
+  }).join('');
+  document.getElementById('modal-add-members').classList.add('active');
+}
+
+// Confirm batch add members
+async function confirmAddMembers() {
+  const checked = document.querySelectorAll('#add-members-list .checkbox-item.checked');
+  const ids = Array.from(checked).map(el => el.dataset.id);
+  if (!ids.length) { showToast('请至少选择一个智能体'); return; }
+  await api('POST', '/admin/rooms/' + currentRoomId + '/members', { agent_ids: ids });
+  showToast('已添加 ' + ids.length + ' 个智能体');
+  closeModals();
+  loadConversations();
 }
 
 async function removeMember(agentId) {
   if (!currentRoomId) return;
   await api('DELETE', '/admin/rooms/' + currentRoomId + '/members/' + agentId);
   showToast('已移除');
-  showRoomSettings(); // Refresh the modal
-}
-
-async function addMemberToRoom() {
-  const agentId = document.getElementById('add-member-select').value;
-  if (!agentId || !currentRoomId) return;
-  await api('POST', '/admin/rooms/' + currentRoomId + '/members', { agent_id: agentId });
-  showToast('已添加');
-  closeModals(); loadConversations();
+  showRoomSettings();
 }
 
 async function deleteCurrentRoom() {
@@ -632,4 +855,164 @@ async function deleteCurrentRoom() {
 initTheme();
 loadConversations();
 loadAgents();
-loadConfig();
+loadModelConfigs();
+connectWebSocket();
+
+// ===== AGENT VIEW & SORT =====
+let agentView = localStorage.getItem('hub-agent-view') || 'grid';
+let agentSort = localStorage.getItem('hub-agent-sort') || 'default';
+
+function setAgentView(view) {
+  agentView = view;
+  localStorage.setItem('hub-agent-view', view);
+  const grid = document.getElementById('agent-grid');
+  if (view === 'list') { grid.classList.add('list-view'); } else { grid.classList.remove('list-view'); }
+  const gridBtn = document.getElementById('view-grid-btn');
+  const listBtn = document.getElementById('view-list-btn');
+  if (gridBtn) gridBtn.classList.toggle('active', view === 'grid');
+  if (listBtn) listBtn.classList.toggle('active', view === 'list');
+}
+
+function sortAgents(sort) {
+  agentSort = sort;
+  localStorage.setItem('hub-agent-sort', sort);
+  renderAgents();
+}
+
+function getSortedAgents() {
+  let sorted = [...agents];
+  if (agentSort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name));
+  else if (agentSort === 'status') sorted.sort((a, b) => (a.status === 'online' ? -1 : 1) - (b.status === 'online' ? -1 : 1));
+  return sorted;
+}
+
+// ===== AGENT STATUS TOGGLE =====
+let editAgentStatus = 'online';
+
+function toggleAgentStatus() {
+  const toggle = document.getElementById('agent-status-toggle');
+  const label = document.getElementById('agent-status-label');
+  if (!toggle || !label) return;
+  editAgentStatus = editAgentStatus === 'online' ? 'offline' : 'online';
+  toggle.classList.toggle('on', editAgentStatus === 'online');
+  label.textContent = editAgentStatus === 'online' ? '在线' : '离线';
+}
+
+// ===== KEYBOARD DETECTION =====
+if (window.visualViewport) {
+  let lastHeight = window.visualViewport.height;
+  window.visualViewport.addEventListener('resize', () => {
+    const diff = lastHeight - window.visualViewport.height;
+    if (diff > 100) {
+      document.body.classList.add('keyboard-open');
+    } else {
+      document.body.classList.remove('keyboard-open');
+    }
+  });
+}
+
+// Apply saved view on load
+setTimeout(() => {
+  setAgentView(agentView);
+}, 100);
+
+// ===== WEBSOCKET STREAMING =====
+function connectWebSocket() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/ws?ui=1`;
+  ws = new WebSocket(url);
+
+  ws.onopen = () => console.log('[WS] Connected');
+  ws.onclose = () => {
+    console.log('[WS] Disconnected, reconnecting in 3s...');
+    setTimeout(connectWebSocket, 3000);
+  };
+  ws.onerror = () => {};
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      handleWSMessage(msg);
+    } catch {}
+  };
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'stream_start': {
+      const { stream_id, room_id, agent_id, agent_name } = msg;
+      activeStreams[stream_id] = { roomId: room_id, agentId: agent_id, agentName: agent_name, text: '' };
+      
+      // If we're viewing this room, create a streaming bubble
+      if (room_id === currentRoomId) {
+        isWaitingReply = false;
+        const indicator = document.getElementById('typing-indicator');
+        indicator.classList.remove('active');
+        
+        const area = document.getElementById('messages-area');
+        const bubble = document.createElement('div');
+        bubble.className = 'msg other streaming';
+        bubble.id = `stream-${stream_id}`;
+        const showName = currentRoomType === 'group';
+        bubble.innerHTML = 
+          (showName ? `<div class="sender-name">${escapeHtml(agent_name)}</div>` : '') +
+          '<div class="msg-text"><span class="stream-cursor">▊</span></div>' +
+          '<div class="msg-time">生成中...</div>';
+        area.insertBefore(bubble, indicator);
+        area.scrollTop = area.scrollHeight;
+      }
+      break;
+    }
+
+    case 'stream_token': {
+      const { stream_id, chunk } = msg;
+      const stream = activeStreams[stream_id];
+      if (!stream) return;
+      stream.text += chunk;
+
+      // Update the streaming bubble if visible
+      if (stream.roomId === currentRoomId) {
+        const bubble = document.getElementById(`stream-${stream_id}`);
+        if (bubble) {
+          const textEl = bubble.querySelector('.msg-text');
+          textEl.innerHTML = renderMarkdown(stream.text) + '<span class="stream-cursor">▊</span>';
+          const area = document.getElementById('messages-area');
+          const atBottom = area.scrollHeight - area.scrollTop <= area.clientHeight + 120;
+          if (atBottom) area.scrollTop = area.scrollHeight;
+        }
+      }
+      break;
+    }
+
+    case 'stream_end': {
+      const { stream_id } = msg;
+      const stream = activeStreams[stream_id];
+      if (!stream) return;
+
+      // Finalize the streaming bubble
+      if (stream.roomId === currentRoomId) {
+        const bubble = document.getElementById(`stream-${stream_id}`);
+        if (bubble) {
+          bubble.classList.remove('streaming');
+          const textEl = bubble.querySelector('.msg-text');
+          textEl.innerHTML = renderMarkdown(stream.text);
+          const timeEl = bubble.querySelector('.msg-time');
+          timeEl.textContent = new Date().toTimeString().slice(0, 5);
+        }
+      }
+      delete activeStreams[stream_id];
+      break;
+    }
+
+    case 'new_message': {
+      // A final saved message arrived — refresh if we're in that room
+      // (streaming already showed it, so just refresh to get the DB version)
+      if (msg.room_id === currentRoomId) {
+        // Small delay to avoid flicker with stream_end
+        setTimeout(() => refreshMessages(), 500);
+      }
+      break;
+    }
+  }
+}
+
