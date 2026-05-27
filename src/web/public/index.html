@@ -45,6 +45,7 @@
 
     /* Chat List */
     .chat-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .list-section-title { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 16px 4px; font-weight: 600; }
     .chat-item { display: flex; align-items: center; padding: 12px 16px; gap: 12px; cursor: pointer; border-bottom: 0.5px solid var(--border); transition: background 0.1s; }
     .chat-item:active { background: var(--surface2); }
     .chat-item .avatar { width: 48px; height: 48px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -52,9 +53,11 @@
     .chat-item .info { flex: 1; min-width: 0; }
     .chat-item .info .name { font-size: 16px; font-weight: 500; }
     .chat-item .info .preview { font-size: 13px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chat-item .meta { font-size: 12px; color: var(--text-dim); }
+    .chat-item .meta { font-size: 12px; color: var(--text-dim); text-align: right; }
+    .chat-item .meta .time { display: block; }
+    .chat-item .avatar.round { border-radius: 50%; }
 
-    /* Chat View (replaces detail panel) */
+    /* Chat View */
     .chat-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); z-index: 50; }
     .chat-view.active { display: flex; }
     .chat-header { height: var(--header-height); display: flex; align-items: center; padding: 0 12px; background: var(--surface); border-bottom: 0.5px solid var(--border); gap: 10px; flex-shrink: 0; }
@@ -67,18 +70,43 @@
     .msg { max-width: 75%; padding: 10px 14px; border-radius: 18px; font-size: 15px; line-height: 1.4; word-break: break-word; }
     .msg.other { align-self: flex-start; background: var(--surface); border: 0.5px solid var(--border); }
     .msg.self { align-self: flex-end; background: var(--accent); color: white; }
+    .msg .sender-name { font-size: 12px; color: var(--accent); font-weight: 500; margin-bottom: 3px; }
+    .msg.self .sender-name { color: rgba(255,255,255,0.8); }
     .msg .msg-time { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
     .msg.self .msg-time { color: rgba(255,255,255,0.7); }
-    .input-bar { padding: 8px 12px; background: var(--surface); border-top: 0.5px solid var(--border); display: flex; gap: 8px; align-items: flex-end; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0)); flex-shrink: 0; }
+    .msg .msg-text { white-space: pre-wrap; }
+    .msg .msg-text code { background: rgba(0,0,0,0.06); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
+    .msg.self .msg-text code { background: rgba(255,255,255,0.2); }
+    .typing-indicator { align-self: flex-start; padding: 10px 14px; border-radius: 18px; background: var(--surface); border: 0.5px solid var(--border); display: none; }
+    .typing-indicator.active { display: block; }
+    .typing-indicator .dots { display: flex; gap: 4px; }
+    .typing-indicator .dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); animation: bounce 1.4s infinite; }
+    .typing-indicator .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+
+    /* Input bar with @ and / support */
+    .input-bar { padding: 8px 12px; background: var(--surface); border-top: 0.5px solid var(--border); display: flex; gap: 8px; align-items: flex-end; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0)); flex-shrink: 0; position: relative; }
     .input-bar textarea { flex: 1; border: 1px solid var(--border); border-radius: 20px; padding: 8px 14px; font-size: 15px; background: var(--surface2); color: var(--text); resize: none; max-height: 100px; line-height: 1.4; font-family: inherit; }
     .input-bar textarea:focus { outline: none; border-color: var(--accent); }
     .input-bar .send-btn { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); border: none; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .input-bar .send-btn svg { width: 16px; height: 16px; }
 
+    /* Autocomplete popup */
+    .autocomplete { position: absolute; bottom: 100%; left: 12px; right: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); max-height: 200px; overflow-y: auto; display: none; z-index: 60; }
+    .autocomplete.active { display: block; }
+    .autocomplete-item { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-bottom: 0.5px solid var(--border); }
+    .autocomplete-item:last-child { border-bottom: none; }
+    .autocomplete-item:active { background: var(--surface2); }
+    .autocomplete-item .ac-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .autocomplete-item .ac-avatar svg { width: 14px; height: 14px; color: white; }
+    .autocomplete-item .ac-name { font-size: 14px; font-weight: 500; }
+    .autocomplete-item .ac-desc { font-size: 12px; color: var(--text-dim); }
+    .autocomplete-item .ac-icon { font-size: 16px; margin-right: 4px; }
+
     /* Agent Grid */
     .agent-grid { flex: 1; overflow-y: auto; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; align-content: start; }
-    .agent-card { background: var(--surface); border-radius: var(--radius-lg); padding: 16px; text-align: center; cursor: pointer; box-shadow: var(--shadow); transition: transform 0.15s; }
-    .agent-card:active { transform: scale(0.97); }
+    .agent-card { background: var(--surface); border-radius: var(--radius-lg); padding: 16px; text-align: center; box-shadow: var(--shadow); }
     .agent-card .agent-avatar { width: 52px; height: 52px; border-radius: 50%; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; }
     .agent-card .agent-avatar svg { width: 26px; height: 26px; color: white; }
     .agent-card .agent-name { font-size: 14px; font-weight: 600; }
@@ -87,6 +115,11 @@
     .agent-card .agent-status .dot { width: 6px; height: 6px; border-radius: 50%; }
     .agent-card .agent-status .dot.online { background: var(--success); }
     .agent-card .agent-status .dot.offline { background: var(--text-dim); }
+    .agent-card .card-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .agent-card .card-actions button { flex: 1; padding: 7px 0; border: none; border-radius: 8px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit; }
+    .agent-card .card-actions .btn-chat { background: var(--accent); color: white; }
+    .agent-card .card-actions .btn-edit { background: var(--surface2); color: var(--text); border: 0.5px solid var(--border); }
+    .agent-card .card-actions button:active { opacity: 0.7; }
 
     /* Agent Detail View */
     .agent-detail { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); z-index: 50; }
@@ -172,10 +205,10 @@
 <body>
   <div class="app">
     <div class="app-inner">
-      <!-- Page: Chats -->
+      <!-- Page: Messages (groups + DMs) -->
       <div class="page active" id="page-chats">
         <div class="header">
-          <h1>群聊</h1>
+          <h1>消息</h1>
           <div class="actions">
             <button onclick="showCreateRoom()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
           </div>
@@ -183,19 +216,24 @@
         <div class="chat-list" id="chat-list"></div>
         <div class="empty" id="chats-empty" style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <p>还没有群聊</p>
-          <p>点击右上角 + 创建</p>
+          <p>还没有对话</p>
+          <p>去智能体页面发起私聊，或创建群聊</p>
         </div>
-        <!-- Chat View (overlay on same page) -->
+        <!-- Chat View (overlay) -->
         <div class="chat-view" id="chat-view">
           <div class="chat-header">
             <button class="back-btn" onclick="closeChat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg></button>
             <span class="title" id="chat-title"></span>
-            <button class="more-btn" onclick="showRoomSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+            <button class="more-btn" id="chat-more-btn" onclick="showRoomSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
           </div>
-          <div class="messages-area" id="messages-area"></div>
+          <div class="messages-area" id="messages-area">
+            <div class="typing-indicator" id="typing-indicator">
+              <div class="dots"><span></span><span></span><span></span></div>
+            </div>
+          </div>
           <div class="input-bar">
-            <textarea id="msg-input" rows="1" placeholder="输入消息..." oninput="autoResize(this)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+            <div class="autocomplete" id="autocomplete"></div>
+            <textarea id="msg-input" rows="1" placeholder="输入消息..." oninput="onInputChange(this)" onkeydown="onInputKeydown(event)"></textarea>
             <button class="send-btn" onclick="sendMsg()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
           </div>
         </div>
@@ -230,8 +268,8 @@
               <input type="text" id="agent-edit-name">
             </div>
             <div class="field">
-              <label>描述</label>
-              <textarea id="agent-edit-desc"></textarea>
+              <label>描述 / 系统提示词</label>
+              <textarea id="agent-edit-desc" placeholder="定义智能体的角色和行为..."></textarea>
             </div>
             <div class="field">
               <label>状态</label>
@@ -289,7 +327,7 @@
     <div class="bottom-nav">
       <div class="nav-item active" onclick="switchPage('chats')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span class="label">群聊</span>
+        <span class="label">消息</span>
       </div>
       <div class="nav-item" onclick="switchPage('agents')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>
@@ -320,7 +358,7 @@
     <div class="modal">
       <h3>创建智能体</h3>
       <input type="text" id="new-agent-name" placeholder="智能体名称">
-      <input type="text" id="new-agent-desc" placeholder="描述（可选）">
+      <input type="text" id="new-agent-desc" placeholder="描述 / 系统提示词（可选）">
       <div class="btn-row">
         <button class="btn btn-cancel" onclick="closeModals()">取消</button>
         <button class="btn btn-primary" onclick="createAgent()">创建</button>
@@ -373,371 +411,6 @@
       <button class="btn btn-danger" onclick="deleteCurrentRoom()" style="margin-top:10px">删除群聊</button>
     </div>
   </div>
-  <script>
-    let currentPage = 'chats';
-    let currentRoomId = null;
-    let currentAgentId = null;
-    let agents = [];
-    let rooms = [];
-    let pollTimer = null;
-    let selectedModel = '';
-    let modelTab = 'fetch';
-
-    // Agent avatar colors
-    const AVATAR_COLORS = [
-      'linear-gradient(135deg, #667eea, #764ba2)',
-      'linear-gradient(135deg, #f093fb, #f5576c)',
-      'linear-gradient(135deg, #4facfe, #00f2fe)',
-      'linear-gradient(135deg, #43e97b, #38f9d7)',
-      'linear-gradient(135deg, #fa709a, #fee140)',
-      'linear-gradient(135deg, #a18cd1, #fbc2eb)',
-      'linear-gradient(135deg, #fccb90, #d57eeb)',
-      'linear-gradient(135deg, #667eea, #f093fb)',
-    ];
-    // Agent SVG icons (different for each)
-    const AGENT_ICONS = [
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="9" cy="16" r="1"/><circle cx="15" cy="16" r="1"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 12 18.469a3.374 3.374 0 0 0-.986-2.386l-.548-.547z"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
-    ];
-
-    function getAgentColor(idx) { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
-    function getAgentIcon(idx) { return AGENT_ICONS[idx % AGENT_ICONS.length]; }
-
-    // Theme
-    function initTheme() {
-      const dark = localStorage.getItem('hub-theme') === 'dark';
-      if (dark) { document.documentElement.setAttribute('data-theme', 'dark'); document.getElementById('theme-toggle').classList.add('on'); }
-    }
-    function toggleTheme() {
-      const el = document.documentElement; const toggle = document.getElementById('theme-toggle');
-      const isDark = el.getAttribute('data-theme') === 'dark';
-      if (isDark) { el.removeAttribute('data-theme'); toggle.classList.remove('on'); localStorage.setItem('hub-theme', 'light'); }
-      else { el.setAttribute('data-theme', 'dark'); toggle.classList.add('on'); localStorage.setItem('hub-theme', 'dark'); }
-    }
-
-    // Navigation
-    function switchPage(page) {
-      currentPage = page;
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById('page-' + page).classList.add('active');
-      document.querySelectorAll('.nav-item').forEach((n, i) => n.classList.toggle('active', ['chats','agents','settings'][i] === page));
-      // Close sub-views
-      document.getElementById('chat-view').classList.remove('active');
-      document.getElementById('agent-detail').classList.remove('active');
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-      if (page === 'chats') loadRooms();
-      if (page === 'agents') loadAgents();
-      if (page === 'settings') loadConfig();
-    }
-
-    // API
-    async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' } };
-      if (body) opts.body = JSON.stringify(body);
-      try { const r = await fetch(path, opts); return await r.json(); }
-      catch(e) { return { ok: false, error: e.message }; }
-    }
-
-    // ===== ROOMS =====
-    async function loadRooms() {
-      const data = await api('GET', '/admin/rooms');
-      rooms = data.result || [];
-      renderChatList();
-    }
-    function renderChatList() {
-      const el = document.getElementById('chat-list');
-      const empty = document.getElementById('chats-empty');
-      if (!rooms.length) { el.innerHTML = ''; empty.style.display = 'flex'; return; }
-      empty.style.display = 'none';
-      el.innerHTML = rooms.map((r, i) => {
-        const n = (r.members || []).length;
-        const color = AVATAR_COLORS[(i + 2) % AVATAR_COLORS.length];
-        return '<div class="chat-item" onclick="openChat(\''+r.id+'\')">'+
-          '<div class="avatar" style="background:'+color+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>'+
-          '<div class="info"><div class="name">'+escapeHtml(r.name)+'</div><div class="preview">'+n+' 个成员</div></div>'+
-          '<div class="meta">'+(r.created_at||'').slice(5,10)+'</div></div>';
-      }).join('');
-    }
-
-    function openChat(roomId) {
-      currentRoomId = roomId;
-      const room = rooms.find(r => r.id === roomId);
-      if (!room) return;
-      document.getElementById('chat-title').textContent = room.name;
-      document.getElementById('chat-view').classList.add('active');
-      refreshMessages();
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = setInterval(refreshMessages, 3000);
-    }
-    function closeChat() {
-      document.getElementById('chat-view').classList.remove('active');
-      currentRoomId = null;
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    }
-    async function refreshMessages() {
-      if (!currentRoomId) return;
-      const data = await api('GET', '/admin/rooms/' + currentRoomId + '/messages?limit=100');
-      const msgs = data.result || [];
-      const area = document.getElementById('messages-area');
-      const atBottom = area.scrollHeight - area.scrollTop <= area.clientHeight + 60;
-      area.innerHTML = msgs.map(m => {
-        const self = m.sender_id === 'system';
-        return '<div class="msg '+(self?'self':'other')+'">'+
-          '<div>'+escapeHtml(m.text)+'</div>'+
-          '<div class="msg-time">'+(m.created_at||'').slice(11,16)+'</div></div>';
-      }).join('');
-      if (atBottom || msgs.length <= 10) area.scrollTop = area.scrollHeight;
-    }
-    async function sendMsg() {
-      const input = document.getElementById('msg-input');
-      const text = input.value.trim();
-      if (!text || !currentRoomId) return;
-      input.value = ''; input.style.height = 'auto';
-      await api('POST', '/admin/rooms/' + currentRoomId + '/broadcast', { text });
-      refreshMessages();
-    }
-    function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 100) + 'px'; }
-
-    // ===== AGENTS =====
-    async function loadAgents() {
-      const data = await api('GET', '/admin/agents');
-      agents = (data.result || []).filter(a => a.id !== 'system');
-      renderAgents();
-    }
-    function renderAgents() {
-      const el = document.getElementById('agent-grid');
-      const empty = document.getElementById('agents-empty');
-      if (!agents.length) { el.innerHTML = ''; empty.style.display = 'flex'; return; }
-      empty.style.display = 'none';
-      el.innerHTML = agents.map((a, i) => {
-        return '<div class="agent-card" onclick="openAgentDetail(\''+a.id+'\')">'+
-          '<div class="agent-avatar" style="background:'+getAgentColor(i)+'">'+getAgentIcon(i)+'</div>'+
-          '<div class="agent-name">'+escapeHtml(a.name)+'</div>'+
-          '<div class="agent-desc">'+escapeHtml(a.description||'通用智能体')+'</div>'+
-          '<div class="agent-status"><span class="dot '+(a.status==='online'?'online':'offline')+'"></span>'+(a.status==='online'?'在线':'离线')+'</div></div>';
-      }).join('');
-    }
-
-    function openAgentDetail(id) {
-      const agent = agents.find(a => a.id === id);
-      if (!agent) return;
-      currentAgentId = id;
-      const idx = agents.indexOf(agent);
-      document.getElementById('agent-edit-avatar').style.background = getAgentColor(idx);
-      document.getElementById('agent-edit-avatar').innerHTML = getAgentIcon(idx);
-      document.getElementById('agent-edit-name').value = agent.name;
-      document.getElementById('agent-edit-desc').value = agent.description || '';
-      document.getElementById('agent-edit-status').value = agent.status === 'online' ? '在线' : '离线';
-      document.getElementById('agent-detail').classList.add('active');
-    }
-    function closeAgentDetail() {
-      document.getElementById('agent-detail').classList.remove('active');
-      currentAgentId = null;
-    }
-    async function saveAgent() {
-      if (!currentAgentId) return;
-      const name = document.getElementById('agent-edit-name').value.trim();
-      const desc = document.getElementById('agent-edit-desc').value.trim();
-      if (!name) { showToast('名称不能为空'); return; }
-      await api('PUT', '/admin/agents/' + currentAgentId, { name, description: desc });
-      showToast('已保存');
-      closeAgentDetail();
-      loadAgents();
-    }
-    async function deleteAgent() {
-      if (!currentAgentId) return;
-      if (!confirm('确定删除该智能体？此操作不可撤销。')) return;
-      await api('DELETE', '/admin/agents/' + currentAgentId);
-      showToast('已删除');
-      closeAgentDetail();
-      loadAgents();
-    }
-
-    // ===== CONFIG =====
-    async function loadConfig() {
-      const data = await api('GET', '/admin/config');
-      if (data.ok) {
-        const c = data.result;
-        document.getElementById('current-model-display').textContent = c.model || '-';
-        document.getElementById('config-status').textContent = c.has_key ? '已配置' : '点击配置';
-      }
-    }
-
-    function showModelSetup() {
-      api('GET', '/admin/config').then(data => {
-        if (data.ok) {
-          document.getElementById('setup-base-url').value = data.result.base_url || '';
-          document.getElementById('setup-base-url-2').value = data.result.base_url || '';
-          document.getElementById('setup-api-key').value = '';
-          document.getElementById('setup-api-key-2').value = '';
-          document.getElementById('setup-api-key').placeholder = data.result.has_key ? 'API Key (留空使用已保存的密钥)' : 'API Key (sk-...)';
-          document.getElementById('setup-api-key-2').placeholder = data.result.has_key ? 'API Key (留空使用已保存的密钥)' : 'API Key (sk-...)';
-          document.getElementById('setup-custom-model').value = data.result.model || '';
-        }
-      });
-      document.getElementById('model-list-container').style.display = 'none';
-      document.getElementById('model-fetch-status').innerHTML = '';
-      selectedModel = '';
-      switchModelTab('fetch');
-      document.getElementById('modal-model-setup').classList.add('active');
-    }
-
-    function switchModelTab(tab) {
-      modelTab = tab;
-      document.getElementById('model-tab-fetch').style.display = tab === 'fetch' ? 'block' : 'none';
-      document.getElementById('model-tab-custom').style.display = tab === 'custom' ? 'block' : 'none';
-      document.querySelectorAll('#modal-model-setup .tab').forEach((t, i) => t.classList.toggle('active', (i === 0 && tab === 'fetch') || (i === 1 && tab === 'custom')));
-    }
-
-    async function fetchModels() {
-      const baseUrl = document.getElementById('setup-base-url').value.trim();
-      const apiKey = document.getElementById('setup-api-key').value.trim();
-
-      document.getElementById('fetch-models-btn').disabled = true;
-      document.getElementById('fetch-models-btn').innerHTML = '<span class="spinner"></span> 获取中...';
-
-      const body = {};
-      if (baseUrl) body.base_url = baseUrl;
-      if (apiKey) body.api_key = apiKey;
-
-      const data = await api('POST', '/admin/config/models', body);
-
-      document.getElementById('fetch-models-btn').disabled = false;
-      document.getElementById('fetch-models-btn').textContent = '获取模型列表';
-
-      if (data.ok && data.result.length > 0) {
-        showFetchStatus('获取到 ' + data.result.length + ' 个模型', 'success');
-        renderModelList(data.result);
-        document.getElementById('model-list-container').style.display = 'block';
-      } else if (data.ok) {
-        showFetchStatus('未获取到模型，可切换到自定义模式', 'error');
-      } else {
-        showFetchStatus(data.error || '获取失败', 'error');
-      }
-    }
-
-    function showFetchStatus(msg, type) {
-      document.getElementById('model-fetch-status').innerHTML = '<div class="status-msg '+type+'">'+msg+'</div>';
-    }
-    function renderModelList(models) {
-      const el = document.getElementById('model-list');
-      el.innerHTML = models.map(m =>
-        '<div class="model-item" onclick="selectModel(\''+m.id.replace(/'/g, "\\'")+'\')"><span class="check"></span><span>'+escapeHtml(m.name)+'</span></div>'
-      ).join('');
-    }
-    function selectModel(id) {
-      selectedModel = id;
-      document.querySelectorAll('.model-item').forEach(el => {
-        el.classList.toggle('selected', el.querySelector('span:last-child').textContent === id);
-      });
-    }
-
-    async function saveModelSetup() {
-      let baseUrl, apiKey, model;
-      if (modelTab === 'fetch') {
-        baseUrl = document.getElementById('setup-base-url').value.trim();
-        apiKey = document.getElementById('setup-api-key').value.trim();
-        model = selectedModel;
-      } else {
-        baseUrl = document.getElementById('setup-base-url-2').value.trim();
-        apiKey = document.getElementById('setup-api-key-2').value.trim();
-        model = document.getElementById('setup-custom-model').value.trim();
-      }
-
-      if (!baseUrl && !model) { showToast('请至少填写 API 地址或模型名称'); return; }
-
-      const body = {};
-      if (baseUrl) body.base_url = baseUrl;
-      if (apiKey) body.api_key = apiKey;
-      if (model) body.model = model;
-
-      try { const host = new URL(baseUrl).hostname.split('.')[0]; body.provider_name = host; }
-      catch(e) { body.provider_name = 'custom'; }
-
-      const data = await api('POST', '/admin/config', body);
-      if (data.ok) {
-        closeModals();
-        loadConfig();
-        showToast('配置已保存');
-      } else {
-        showToast(data.error || '保存失败');
-      }
-    }
-
-    // ===== MODALS =====
-    function showCreateRoom() { document.getElementById('modal-room').classList.add('active'); }
-    function showCreateAgent() { document.getElementById('modal-agent').classList.add('active'); }
-    function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active')); }
-
-    async function createRoom() {
-      const name = document.getElementById('room-name').value.trim();
-      if (!name) return;
-      await api('POST', '/admin/rooms', { name, description: document.getElementById('room-desc').value.trim() });
-      document.getElementById('room-name').value = '';
-      document.getElementById('room-desc').value = '';
-      closeModals(); loadRooms();
-    }
-    async function createAgent() {
-      const name = document.getElementById('new-agent-name').value.trim();
-      if (!name) return;
-      await api('POST', '/admin/agents', { name, description: document.getElementById('new-agent-desc').value.trim() });
-      document.getElementById('new-agent-name').value = '';
-      document.getElementById('new-agent-desc').value = '';
-      closeModals(); loadAgents();
-    }
-
-    // Room settings
-    function showRoomSettings() {
-      if (!currentRoomId) return;
-      const room = rooms.find(r => r.id === currentRoomId);
-      if (!room) return;
-      document.getElementById('room-settings-title').textContent = room.name + ' - 设置';
-      const members = room.members || [];
-      document.getElementById('room-members-list').innerHTML =
-        '<div class="hint">成员 ('+members.length+')</div>' +
-        members.map(m => '<div style="padding:8px 0;font-size:14px;border-bottom:0.5px solid var(--border)">'+escapeHtml(m.name)+'</div>').join('');
-      const select = document.getElementById('add-member-select');
-      const available = agents.filter(a => !members.find(m => m.id === a.id));
-      select.innerHTML = available.length ?
-        available.map(a => '<option value="'+a.id+'">'+escapeHtml(a.name)+'</option>').join('') :
-        '<option disabled>无可添加的智能体</option>';
-      document.getElementById('modal-room-settings').classList.add('active');
-    }
-    async function addMemberToRoom() {
-      const agentId = document.getElementById('add-member-select').value;
-      if (!agentId || !currentRoomId) return;
-      await api('POST', '/admin/rooms/' + currentRoomId + '/members', { agent_id: agentId });
-      showToast('已添加');
-      closeModals(); loadRooms();
-    }
-    async function deleteCurrentRoom() {
-      if (!confirm('确定删除该群聊？')) return;
-      await api('DELETE', '/admin/rooms/' + currentRoomId);
-      closeModals(); closeChat(); loadRooms();
-      showToast('已删除');
-    }
-
-    // Utils
-    function escapeHtml(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-    function showToast(msg) {
-      const t = document.createElement('div');
-      t.className = 'toast';
-      t.textContent = msg;
-      document.body.appendChild(t);
-      setTimeout(() => t.remove(), 2000);
-    }
-
-    // Init
-    initTheme();
-    loadRooms();
-    loadAgents();
-    loadConfig();
-  </script>
+  <script src="app.js"></script>
 </body>
 </html>

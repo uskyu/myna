@@ -106,11 +106,11 @@ class SQLiteAdapter extends DatabaseAdapter {
     this.db.prepare(`DELETE FROM agents WHERE id = ?`).run(id);
   }
 
-  createRoom(name, description = '') {
+  createRoom(name, description = '', type = 'group') {
     const id = uuidv4();
-    this.db.prepare(`INSERT INTO rooms (id, name, description) VALUES (?, ?, ?)`)
-      .run(id, name, description);
-    return { id, name, description };
+    this.db.prepare(`INSERT INTO rooms (id, name, description, type) VALUES (?, ?, ?, ?)`)
+      .run(id, name, description, type);
+    return { id, name, description, type };
   }
 
   getRoom(id) {
@@ -200,6 +200,27 @@ class SQLiteAdapter extends DatabaseAdapter {
 
   cleanupUpdates() {
     this.db.prepare(`DELETE FROM updates WHERE consumed = 1 AND created_at < datetime('now', '-1 hour')`).run();
+  }
+
+  // Update agent name/description
+  updateAgent(id, name, description) {
+    this.db.prepare(`UPDATE agents SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(name, description, id);
+  }
+
+  // Get DM room between two agents
+  getDMRoom(userId, agentId) {
+    return this.db.prepare(`
+      SELECT r.* FROM rooms r
+      WHERE r.type = 'dm'
+      AND EXISTS (SELECT 1 FROM room_members rm1 WHERE rm1.room_id = r.id AND rm1.agent_id = ?)
+      AND EXISTS (SELECT 1 FROM room_members rm2 WHERE rm2.room_id = r.id AND rm2.agent_id = ?)
+    `).get(userId, agentId);
+  }
+
+  // List all DM rooms
+  listDMRooms() {
+    return this.db.prepare(`SELECT * FROM rooms WHERE type = 'dm'`).all();
   }
 
   close() {
