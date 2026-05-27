@@ -95,6 +95,8 @@ class SQLiteAdapter extends DatabaseAdapter {
     } catch (e) {
       // Column already exists, ignore
     }
+    // Add settings_json column to rooms if not exists
+    try { this.db.prepare(`ALTER TABLE rooms ADD COLUMN settings_json TEXT DEFAULT '{}'`).run(); } catch(e) {}
   }
 
   createAgent(name, description = '') {
@@ -146,6 +148,22 @@ class SQLiteAdapter extends DatabaseAdapter {
 
   deleteRoom(id) {
     this.db.prepare(`DELETE FROM rooms WHERE id = ?`).run(id);
+  }
+
+  getRoomSettings(roomId) {
+    const row = this.db.prepare(`SELECT settings_json FROM rooms WHERE id = ?`).get(roomId);
+    try {
+      return JSON.parse(row?.settings_json || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  updateRoomSettings(roomId, settings) {
+    const current = this.getRoomSettings(roomId);
+    const merged = { ...current, ...settings };
+    this.db.prepare(`UPDATE rooms SET settings_json = ? WHERE id = ?`).run(JSON.stringify(merged), roomId);
+    return merged;
   }
 
   addMember(room_id, agent_id, role = 'member') {

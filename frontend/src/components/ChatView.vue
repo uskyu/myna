@@ -125,7 +125,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
-import { store, api, ws, escapeHtml, getAgentColor, getAgentIcon, loadConversations } from '../store.js'
+import { store, api, ws, escapeHtml, getAgentColor, getAgentIcon, loadConversations, clearUnread, currentRoomId } from '../store.js'
 import RoomInfoPanel from './RoomInfoPanel.vue'
 
 const props = defineProps({ room: Object, type: String })
@@ -469,7 +469,7 @@ async function onMembersChanged() {
 
 function handleWS(msg) {
   if (msg.type === 'stream_start' && msg.room_id === props.room.id) {
-    store.activeStreams[msg.stream_id] = { roomId: msg.room_id, agentId: msg.agent_id, agentName: msg.agent_name, text: '', toolCalls: [], working: true }
+    // activeStreams is now managed globally in store.js
     typingAgent.value = null
     nextTick(scrollToBottomIfNeeded)
   } else if (msg.type === 'tool_call' && store.activeStreams[msg.stream_id]) {
@@ -493,9 +493,8 @@ function handleWS(msg) {
     stream.text += msg.chunk
     store.activeStreams = { ...store.activeStreams }
     nextTick(scrollToBottomIfNeeded)
-  } else if (msg.type === 'stream_end' && store.activeStreams[msg.stream_id]) {
-    delete store.activeStreams[msg.stream_id]
-    store.activeStreams = { ...store.activeStreams }
+  } else if (msg.type === 'stream_end' && msg.room_id === props.room.id) {
+    // activeStreams cleanup is handled globally; just refresh messages
     setTimeout(fetchMessages, 300)
   } else if (msg.type === 'new_message' && msg.room_id === props.room.id) {
     fetchMessages()
@@ -506,6 +505,8 @@ function handleWS(msg) {
 }
 
 onMounted(() => {
+  clearUnread(props.room.id)
+  currentRoomId.value = props.room.id
   fetchMessages()
   pollTimer = setInterval(fetchMessages, 3000)
   ws.onMessage(handleWS)
@@ -513,5 +514,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearInterval(pollTimer)
+  currentRoomId.value = null
+})
+
+// When room prop changes, update currentRoomId and clear unread
+watch(() => props.room.id, (newId) => {
+  clearUnread(newId)
+  currentRoomId.value = newId
 })
 </script>

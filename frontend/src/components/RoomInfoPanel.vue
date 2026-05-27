@@ -26,6 +26,23 @@
       ></textarea>
     </div>
 
+    <!-- Collaboration Settings -->
+    <div class="info-section">
+      <h4>⚙️ 协作设置</h4>
+      <div class="setting-row">
+        <label class="setting-label">最大协作轮数</label>
+        <input
+          type="number"
+          class="setting-input"
+          v-model.number="roomSettings.max_chain_depth"
+          @change="saveSettings"
+          min="1"
+          max="20"
+          placeholder="5"
+        >
+      </div>
+    </div>
+
     <!-- Members -->
     <div class="info-section">
       <div class="section-head">
@@ -118,6 +135,9 @@ const form = reactive({
   name: props.room.name || '',
   description: props.room.description || '',
 })
+const roomSettings = reactive({
+  max_chain_depth: 5,
+})
 
 async function load() {
   const data = await api('GET', '/admin/rooms')
@@ -126,6 +146,13 @@ async function load() {
     members.value = room.members || []
     if (!form.name) form.name = room.name || ''
     if (!form.description) form.description = room.description || ''
+    // Load settings from room's settings_json
+    if (room.settings_json) {
+      try {
+        const s = typeof room.settings_json === 'string' ? JSON.parse(room.settings_json) : room.settings_json
+        if (s.max_chain_depth) roomSettings.max_chain_depth = s.max_chain_depth
+      } catch {}
+    }
   }
 }
 
@@ -162,6 +189,14 @@ async function saveField() {
       saving.value = false
     }
   }, 280)
+}
+
+async function saveSettings() {
+  const val = Math.max(1, Math.min(20, roomSettings.max_chain_depth || 5))
+  roomSettings.max_chain_depth = val
+  await api('PUT', `/admin/rooms/${props.room.id}`, {
+    settings_json: { max_chain_depth: val }
+  })
 }
 
 async function addMember(a) {
@@ -348,6 +383,37 @@ onMounted(load)
 .icon-btn.danger:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); }
 
 .add-member-block { margin-top: 12px; }
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.setting-label {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 500;
+}
+.setting-input {
+  width: 64px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--surface2);
+  color: var(--text);
+  text-align: center;
+}
+.setting-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-glow);
+}
 
 .hint-box {
   background: var(--surface);

@@ -94,6 +94,28 @@ router.post('/rooms', async (req, res) => {
   res.json({ ok: true, result: room });
 });
 
+router.put('/rooms/:id', async (req, res) => {
+  const db = getDatabase();
+  const { name, description, settings_json } = req.body;
+  const room = await db.getRoom(req.params.id);
+  if (!room) {
+    return res.status(404).json({ ok: false, error: 'Room not found' });
+  }
+  const sets = [];
+  const vals = [];
+  if (name !== undefined) { sets.push('name = ?'); vals.push(name); }
+  if (description !== undefined) { sets.push('description = ?'); vals.push(description); }
+  if (settings_json !== undefined) {
+    // Merge with existing settings
+    db.updateRoomSettings(req.params.id, typeof settings_json === 'string' ? JSON.parse(settings_json) : settings_json);
+  }
+  if (sets.length > 0) {
+    vals.push(req.params.id);
+    db.db.prepare(`UPDATE rooms SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  res.json({ ok: true });
+});
+
 router.delete('/rooms/:id', async (req, res) => {
   const db = getDatabase();
   await db.deleteRoom(req.params.id);

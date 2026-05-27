@@ -254,9 +254,10 @@ async function chatCompletion(agent, history, callbacks = {}, modelConfig = null
  * Streams tokens + tool events to UI via WebSocket.
  */
 async function processMessage(db, wsManager, roomId, senderId, text, mentions = [], roomType = 'group', chainDepth = 0) {
-  const MAX_CHAIN_DEPTH = 5;
+  const roomSettings = db.getRoomSettings(roomId);
+  const MAX_CHAIN_DEPTH = roomSettings.max_chain_depth || 5;
   if (chainDepth >= MAX_CHAIN_DEPTH) {
-    console.log(`[AI] Chain depth ${chainDepth} reached max, stopping.`);
+    console.log(`[AI] Chain depth ${chainDepth} reached max (${MAX_CHAIN_DEPTH}), stopping.`);
     return;
   }
 

@@ -13,14 +13,23 @@ export async function api(method, path, body) {
   }
 }
 
+// Track which room is currently open
+export const currentRoomId = ref(null)
+
 // Global state
 export const store = reactive({
   agents: [],
   rooms: [],
   dms: [],
   activeStreams: {},
+  unreadCounts: {},
   initialized: false,
 })
+
+// Clear unread count for a room
+export function clearUnread(roomId) {
+  store.unreadCounts[roomId] = 0
+}
 
 export async function loadAgents() {
   const data = await api('GET', '/admin/agents')
@@ -54,6 +63,8 @@ export const ws = {
     this._ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data)
+        // Global handler for activeStreams and unread counts
+        _globalWSHandler(msg)
         this._handlers.forEach(h => h(msg))
       } catch {}
     }
@@ -65,6 +76,28 @@ export const ws = {
     clearTimeout(this._reconnectTimer)
     this._ws?.close()
     this._handlers = []
+  }
+}
+
+// Global WS handler: manages activeStreams and unread counts at store level
+function _globalWSHandler(msg) {
+  if (msg.type === 'stream_start') {
+    store.activeStreams[msg.stream_id] = { roomId: msg.room_id, agentId: msg.agent_id, agentName: msg.agent_name, text: '', toolCalls: [], working: true }
+    store.activeStreams = { ...store.activeStreams }
+  } else if (msg.type === 'stream_end') {
+    if (store.activeStreams[msg.stream_id]) {
+      delete store.activeStreams[msg.stream_id]
+      store.activeStreams = { ...store.activeStreams }
+    }
+    // Increment unread if not the current room
+    if (msg.room_id && msg.room_id !== currentRoomId.value) {
+      store.unreadCounts[msg.room_id] = (store.unreadCounts[msg.room_id] || 0) + 1
+    }
+  } else if (msg.type === 'new_message') {
+    // Increment unread if not the current room
+    if (msg.room_id && msg.room_id !== currentRoomId.value) {
+      store.unreadCounts[msg.room_id] = (store.unreadCounts[msg.room_id] || 0) + 1
+    }
   }
 }
 

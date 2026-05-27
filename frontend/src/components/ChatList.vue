@@ -21,7 +21,8 @@
           </div>
           <div class="meta">
             <span class="time">{{ r.last_message?.created_at?.slice(11, 16) || '' }}</span>
-            <span v-if="isRoomActive(r.id)" class="active-badge"><span class="pulse-dot"></span>生成中</span>
+            <span v-if="store.unreadCounts[r.id] > 0" class="unread-badge">{{ store.unreadCounts[r.id] }}</span>
+            <span v-else-if="isRoomActive(r.id)" class="active-badge"><span class="pulse-dot"></span>生成中</span>
           </div>
         </div>
       </template>
@@ -37,7 +38,8 @@
           </div>
           <div class="meta">
             <span class="time">{{ dm.last_message?.created_at?.slice(11, 16) || '' }}</span>
-            <span v-if="isRoomActive(dm.id)" class="active-badge"><span class="pulse-dot"></span>生成中</span>
+            <span v-if="store.unreadCounts[dm.id] > 0" class="unread-badge">{{ store.unreadCounts[dm.id] }}</span>
+            <span v-else-if="isRoomActive(dm.id)" class="active-badge"><span class="pulse-dot"></span>生成中</span>
           </div>
         </div>
       </template>
@@ -70,3 +72,18 @@ onMounted(() => {
 })
 onUnmounted(() => clearInterval(timer))
 </script>
+
+<style scoped>
+.unread-badge {
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+</style>
