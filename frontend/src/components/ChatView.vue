@@ -17,26 +17,6 @@
         <svg v-if="!showSettings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
         <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
       </button>
-      <div style="position:relative">
-        <button class="settings-btn" @click="showChatSettings = !showChatSettings" title="聊天设置">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-        <div v-if="showChatSettings" class="chat-settings-dropdown">
-          <div class="chat-settings-title">工具调用显示</div>
-          <label class="chat-settings-option">
-            <input type="radio" name="tool-display" value="expanded" :checked="chatSettings.toolCallDisplay === 'expanded'" @change="onSettingsChange('expanded')">
-            <span>展开</span>
-          </label>
-          <label class="chat-settings-option">
-            <input type="radio" name="tool-display" value="collapsed" :checked="chatSettings.toolCallDisplay === 'collapsed'" @change="onSettingsChange('collapsed')">
-            <span>折叠</span>
-          </label>
-          <label class="chat-settings-option">
-            <input type="radio" name="tool-display" value="collapsed-after-complete" :checked="chatSettings.toolCallDisplay === 'collapsed-after-complete'" @change="onSettingsChange('collapsed-after-complete')">
-            <span>完成后折叠</span>
-          </label>
-        </div>
-      </div>
     </div>
 
     <!-- Group info panel (replaces messages area when active) -->
@@ -51,11 +31,11 @@
       <template v-for="(group, gi) in messageGroups" :key="gi">
         <div v-if="group.separator" class="time-separator"><span>{{ group.separator }}</span></div>
         <div class="msg-group" :class="{ self: group.self }">
-          <div v-for="(msg, mi) in group.messages" :key="msg.id || mi" class="msg" :class="{ self: group.self, streaming: msg.streaming }">
+          <div v-for="(msg, mi) in group.messages" :key="msg.id || mi" class="msg" :class="{ self: group.self, streaming: msg.streaming }" @click="!group.self && onBubbleClick(msg)">
             <div v-if="msg.showName" class="sender-name">{{ msg.sender_name }}</div>
             <!-- Working bubble (tool calls - streaming or saved) -->
             <div v-if="msg.toolCalls && msg.toolCalls.length" class="working-bubble" :class="{ collapsed: !msg.toolsExpanded, done: !msg.streaming }">
-              <div class="working-header" @click="toggleToolsExpand(msg)">
+              <div class="working-header" @click.stop="toggleToolsExpand(msg)">
                 <div v-if="msg.streaming" class="working-spinner"></div>
                 <svg v-else class="working-done-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
                 <span class="working-label">{{ msg.streaming ? '工作中' : '工具调用' }}</span>
@@ -81,6 +61,8 @@
             <div v-if="msg.streaming && !msg.text && msg.toolCalls && msg.toolCalls.length" class="msg-text working-placeholder"></div>
             <div v-else class="msg-text" v-html="msg.streaming ? (msg.rendered + '<span class=stream-cursor>▊</span>') : msg.rendered"></div>
             <div class="msg-time">{{ msg.streaming ? (msg.working ? '思考中...' : '生成中...') : msg.time }}</div>
+            <!-- Stop button for streaming messages -->
+            <button v-if="msg.streaming" class="stop-stream-btn" @click.stop="cancelStream(msg)">⏹ 停止</button>
           </div>
         </div>
       </template>
@@ -122,9 +104,20 @@
                 @click="selectThread(t.id); threadDrawerOpen = false"
               >
                 <div class="thread-item-header">
-                  <div class="thread-item-title">
+                  <div class="thread-item-title" @dblclick.stop="startRenameThread(t)">
                     <span v-if="t.status === 'workflow_running'" class="thread-status-icon">🔄</span>
-                    {{ t.title }}
+                    <template v-if="renamingThreadId === t.id">
+                      <input
+                        class="thread-rename-input"
+                        v-model="renameThreadTitle"
+                        @click.stop
+                        @keydown.enter.stop="finishRenameThread(t)"
+                        @keydown.escape.stop="cancelRenameThread"
+                        @blur="finishRenameThread(t)"
+                        ref="renameInput"
+                      >
+                    </template>
+                    <template v-else>{{ t.title }}</template>
                   </div>
                   <button class="thread-item-delete" @click.stop="deleteThread(t.id)" title="删除对话">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -157,6 +150,13 @@
         </div>
       </div>
 
+      <!-- Plus menu popup -->
+      <div v-if="showPlusMenu" class="plus-menu-popup">
+        <div class="plus-menu-item" @mousedown.prevent="onPlusUploadFile">📎 上传文件</div>
+        <div class="plus-menu-item" @mousedown.prevent="onPlusUploadImage">🖼 添加图片</div>
+        <div class="plus-menu-item" @mousedown.prevent="onPlusShortcut">⚡ 快捷指令</div>
+      </div>
+
       <!-- Attachment preview -->
       <div v-if="attachments.length" class="attach-preview">
         <div v-for="(a, idx) in attachments" :key="idx" class="attach-chip">
@@ -169,10 +169,11 @@
         </div>
       </div>
 
-      <button class="file-btn" @click="$refs.fileInput.click()" title="上传文件">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      <button class="file-btn plus-btn" @click="togglePlusMenu" title="更多">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       </button>
       <input ref="fileInput" type="file" multiple style="display:none" @change="onFiles">
+      <input ref="imageInput" type="file" multiple accept="image/*" style="display:none" @change="onFiles">
 
       <button class="at-btn" @click="triggerAt" title="@提及">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0V12a10 10 0 1 0-3.92 7.94"/></svg>
@@ -212,6 +213,8 @@ const emit = defineEmits(['close'])
 const messagesArea = ref(null)
 const inputEl = ref(null)
 const fileInput = ref(null)
+const imageInput = ref(null)
+const renameInput = ref(null)
 const inputText = ref('')
 const messages = ref([])
 const typingAgent = ref(null)
@@ -220,7 +223,11 @@ const attachments = ref([])
 const threads = ref([])
 const activeThreadId = ref(null)
 const threadDrawerOpen = ref(false)
-const showChatSettings = ref(false)
+const showPlusMenu = ref(false)
+
+// Thread rename state
+const renamingThreadId = ref(null)
+const renameThreadTitle = ref('')
 
 // Mention autocomplete
 const showMentions = ref(false)
@@ -260,6 +267,58 @@ function getToolsExpanded(sid, isStreaming) {
 function onSettingsChange(val) {
   chatSettings.toolCallDisplay = val
   saveChatSettings()
+}
+
+// === Task 1: Click AI bubble to @mention ===
+function onBubbleClick(msg) {
+  if (!msg.sender_name) return
+  const mention = '@' + msg.sender_name + ' '
+  inputText.value = mention + inputText.value
+  nextTick(() => {
+    const el = inputEl.value
+    if (el) {
+      el.focus()
+      el.selectionStart = el.selectionEnd = mention.length + inputText.value.length - mention.length
+    }
+  })
+}
+
+// === Task 2: Plus menu ===
+function togglePlusMenu() {
+  showPlusMenu.value = !showPlusMenu.value
+  if (showPlusMenu.value) {
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', closePlusMenu, { once: true })
+    }, 0)
+  }
+}
+function closePlusMenu() {
+  showPlusMenu.value = false
+}
+function onPlusUploadFile() {
+  showPlusMenu.value = false
+  fileInput.value?.click()
+}
+function onPlusUploadImage() {
+  showPlusMenu.value = false
+  imageInput.value?.click()
+}
+function onPlusShortcut() {
+  showPlusMenu.value = false
+  showToast('开发中')
+}
+
+// === Task 4: Cancel stream ===
+function cancelStream(msg) {
+  const streamId = String(msg.id).replace('stream-', '')
+  // Emit WS event
+  if (ws._ws && ws._ws.readyState === WebSocket.OPEN) {
+    ws._ws.send(JSON.stringify({ type: 'cancel_stream', stream_id: streamId }))
+  }
+  // Remove from activeStreams
+  delete store.activeStreams[streamId]
+  store.activeStreams = { ...store.activeStreams }
 }
 
 const title = computed(() => {
@@ -416,12 +475,11 @@ function selectThread(threadId) {
 }
 
 async function createThread() {
-  const title = prompt('话题名称：')
-  if (!title || !title.trim()) return
-  const data = await api('POST', `/admin/rooms/${props.room.id}/threads`, { title: title.trim() })
+  const data = await api('POST', `/admin/rooms/${props.room.id}/threads`, { title: '新对话' })
   if (data.ok) {
     await fetchThreads()
     selectThread(data.result.id)
+    threadDrawerOpen.value = false
   }
 }
 
@@ -433,6 +491,43 @@ async function deleteThread(threadId) {
   }
   await fetchThreads()
   fetchMessages()
+}
+
+// === Task 3: Thread rename ===
+function startRenameThread(t) {
+  renamingThreadId.value = t.id
+  renameThreadTitle.value = t.title
+  nextTick(() => {
+    const el = renameInput.value
+    if (el) {
+      // renameInput may be an array due to v-for
+      const input = Array.isArray(el) ? el[0] : el
+      if (input) input.focus()
+    }
+  })
+}
+async function finishRenameThread(t) {
+  const newTitle = renameThreadTitle.value.trim()
+  if (newTitle && newTitle !== t.title) {
+    await api('PATCH', `/admin/threads/${t.id}`, { title: newTitle })
+    t.title = newTitle
+    await fetchThreads()
+  }
+  renamingThreadId.value = null
+}
+function cancelRenameThread() {
+  renamingThreadId.value = null
+}
+
+// Auto-update thread title on first message
+async function autoUpdateThreadTitle(text) {
+  if (!activeThreadId.value) return
+  const thread = threads.value.find(t => t.id === activeThreadId.value)
+  if (!thread || thread.title !== '新对话') return
+  // Only update if this is the first message (thread has no prior messages)
+  const truncated = text.slice(0, 20)
+  await api('PATCH', `/admin/threads/${activeThreadId.value}`, { title: truncated })
+  thread.title = truncated
 }
 
 function formatThreadTime(ts) {
@@ -612,6 +707,8 @@ async function send() {
   scrollToBottom()
 
   await api('POST', activeThreadId.value ? `/admin/threads/${activeThreadId.value}/send` : `/admin/rooms/${props.room.id}/send`, { text: body, mentions })
+  // Auto-update thread title if this is the first message in a '新对话' thread
+  autoUpdateThreadTitle(text)
 }
 
 async function handleCommand(text) {

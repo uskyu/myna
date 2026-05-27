@@ -207,6 +207,108 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   font-weight: 600;
 }
 
+/* === Desktop Dual-Pane Layout === */
+.desktop-layout {
+  flex-direction: row;
+}
+
+.desktop-sidebar {
+  width: 60px;
+  height: 100dvh;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 16px;
+  gap: 8px;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.sidebar-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+.sidebar-icon svg {
+  width: 22px;
+  height: 22px;
+  color: var(--text-dim);
+  transition: color 0.15s ease;
+}
+.sidebar-icon:hover {
+  background: var(--surface2);
+}
+.sidebar-icon:hover svg {
+  color: var(--text-2);
+}
+.sidebar-icon.active {
+  background: var(--accent-soft);
+}
+.sidebar-icon.active svg {
+  color: var(--accent);
+}
+
+.desktop-list-panel {
+  width: 300px;
+  height: 100dvh;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.desktop-list-panel .page {
+  position: relative;
+  inset: auto;
+  height: 100%;
+}
+
+.desktop-chat-panel {
+  flex: 1;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.desktop-chat-panel .chat-view {
+  position: relative;
+  inset: auto;
+  height: 100%;
+  z-index: auto;
+}
+.desktop-chat-panel .chat-header .back-btn {
+  display: none;
+}
+
+.desktop-empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--text-dim);
+}
+.desktop-empty-state svg {
+  width: 48px;
+  height: 48px;
+  opacity: 0.4;
+}
+.desktop-empty-state p {
+  font-size: 15px;
+  font-weight: 500;
+}
+
 /* === Chat List === */
 .chat-list {
   flex: 1;
@@ -1225,6 +1327,29 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .toggle.on { background: var(--accent); }
 .toggle.on::after { transform: translateX(20px); }
 
+.tool-display-options {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 26px;
+}
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+}
+.radio-option:hover { border-color: var(--accent); color: var(--text); }
+.radio-option.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.radio-option input[type="radio"] { display: none; }
+
 /* === Buttons === */
 .btn {
   padding: 10px 20px;
@@ -1783,6 +1908,86 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   width: 14px;
   height: 14px;
   cursor: pointer;
+}
+
+/* === Plus Menu Popup === */
+.plus-menu-popup {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 50;
+  animation: mentionIn 0.15s ease;
+  min-width: 160px;
+}
+.plus-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-2);
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.plus-menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.plus-menu-item:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Plus button rotation when active */
+.input-bar .plus-btn.active {
+  transform: rotate(45deg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* === Stop Stream Button === */
+.stop-stream-btn {
+  display: block;
+  margin-top: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.stop-stream-btn:hover {
+  background: var(--danger);
+  color: white;
+}
+
+/* === Thread Rename Input === */
+.thread-rename-input {
+  width: 100%;
+  padding: 3px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+/* === Non-self message bubble clickable hint === */
+.msg-group:not(.self) .msg {
+  cursor: pointer;
+}
+.msg-group:not(.self) .msg:hover {
+  border-color: var(--accent);
 }
 
 

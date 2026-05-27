@@ -11,6 +11,27 @@
         </div>
       </div>
       <div class="settings-section">
+        <div class="section-title">聊天</div>
+        <div class="setting-item" style="cursor:default;flex-wrap:wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          <span class="setting-label">工具调用显示</span>
+          <div class="tool-display-options">
+            <label class="radio-option" :class="{ active: chatSettings.toolCallDisplay === 'expanded' }">
+              <input type="radio" name="tool-display" value="expanded" :checked="chatSettings.toolCallDisplay === 'expanded'" @change="onToolDisplayChange('expanded')">
+              <span>展开</span>
+            </label>
+            <label class="radio-option" :class="{ active: chatSettings.toolCallDisplay === 'collapsed' }">
+              <input type="radio" name="tool-display" value="collapsed" :checked="chatSettings.toolCallDisplay === 'collapsed'" @change="onToolDisplayChange('collapsed')">
+              <span>折叠</span>
+            </label>
+            <label class="radio-option" :class="{ active: chatSettings.toolCallDisplay === 'collapsed-after-complete' }">
+              <input type="radio" name="tool-display" value="collapsed-after-complete" :checked="chatSettings.toolCallDisplay === 'collapsed-after-complete'" @change="onToolDisplayChange('collapsed-after-complete')">
+              <span>完成后折叠</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="settings-section">
         <div class="section-title">模型配置</div>
         <div class="setting-item" @click="showModels = true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -35,7 +56,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { api } from '../store.js'
+import { api, chatSettings, saveChatSettings } from '../store.js'
 import ModelsModal from './ModelsModal.vue'
 
 const isDark = ref(false)
@@ -51,6 +72,11 @@ function toggleTheme() {
     document.documentElement.removeAttribute('data-theme')
     localStorage.setItem('hub-theme', 'light')
   }
+}
+
+function onToolDisplayChange(val) {
+  chatSettings.toolCallDisplay = val
+  saveChatSettings()
 }
 
 async function loadModels() {
