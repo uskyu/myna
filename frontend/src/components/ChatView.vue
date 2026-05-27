@@ -19,7 +19,7 @@
       <RoomInfoPanel :room="room" @changed="onMembersChanged" @close="showSettings = false" />
     </div>
 
-    <div v-else class="messages-area" ref="messagesArea">
+    <div v-else class="messages-area" ref="messagesArea" @scroll="onScroll">
       <template v-for="(group, gi) in messageGroups" :key="gi">
         <div v-if="group.separator" class="time-separator"><span>{{ group.separator }}</span></div>
         <div class="msg-group" :class="{ self: group.self }">
@@ -260,14 +260,32 @@ const messageGroups = computed(() => {
 
 async function fetchMessages() {
   const data = await api('GET', `/admin/rooms/${props.room.id}/messages?limit=100`)
-  messages.value = data.result || []
+  const newMsgs = data.result || []
+  // Preserve optimistic messages that haven't appeared in server response yet
+  const serverIds = new Set(newMsgs.map(m => m.id))
+  const optimistic = messages.value.filter(m => String(m.id).startsWith('tmp-'))
+  // Check if optimistic msg text exists in server response (means it was saved)
+  const unsaved = optimistic.filter(om => !newMsgs.some(sm => sm.sender_id === 'user' && sm.text === om.text))
+  messages.value = [...newMsgs, ...unsaved]
   await nextTick()
-  scrollToBottom()
+  scrollToBottomIfNeeded()
 }
 
+// Smart scroll: only auto-scroll if user is near bottom
+let userScrolledUp = false
+function onScroll() {
+  const el = messagesArea.value
+  if (!el) return
+  const threshold = 80
+  userScrolledUp = (el.scrollHeight - el.scrollTop - el.clientHeight) > threshold
+}
 function scrollToBottom() {
   const el = messagesArea.value
   if (el) el.scrollTop = el.scrollHeight
+  userScrolledUp = false
+}
+function scrollToBottomIfNeeded() {
+  if (!userScrolledUp) scrollToBottom()
 }
 
 // === Mention logic ===
@@ -453,13 +471,13 @@ function handleWS(msg) {
   if (msg.type === 'stream_start' && msg.room_id === props.room.id) {
     store.activeStreams[msg.stream_id] = { roomId: msg.room_id, agentId: msg.agent_id, agentName: msg.agent_name, text: '', toolCalls: [], working: true }
     typingAgent.value = null
-    nextTick(scrollToBottom)
+    nextTick(scrollToBottomIfNeeded)
   } else if (msg.type === 'tool_call' && store.activeStreams[msg.stream_id]) {
     const stream = store.activeStreams[msg.stream_id]
     stream.toolCalls.push({ name: msg.tool, summary: msg.args_summary, status: 'running', result: null, ts: msg.timestamp })
     // Force reactivity
     store.activeStreams = { ...store.activeStreams }
-    nextTick(scrollToBottom)
+    nextTick(scrollToBottomIfNeeded)
   } else if (msg.type === 'tool_result' && store.activeStreams[msg.stream_id]) {
     const stream = store.activeStreams[msg.stream_id]
     const last = stream.toolCalls.findLast(t => t.name === msg.tool && t.status === 'running')
@@ -468,13 +486,13 @@ function handleWS(msg) {
       last.result = msg.output_preview || ''
     }
     store.activeStreams = { ...store.activeStreams }
-    nextTick(scrollToBottom)
+    nextTick(scrollToBottomIfNeeded)
   } else if (msg.type === 'stream_token' && store.activeStreams[msg.stream_id]) {
     const stream = store.activeStreams[msg.stream_id]
     stream.working = false
     stream.text += msg.chunk
     store.activeStreams = { ...store.activeStreams }
-    nextTick(scrollToBottom)
+    nextTick(scrollToBottomIfNeeded)
   } else if (msg.type === 'stream_end' && store.activeStreams[msg.stream_id]) {
     delete store.activeStreams[msg.stream_id]
     store.activeStreams = { ...store.activeStreams }

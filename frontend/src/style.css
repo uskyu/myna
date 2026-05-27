@@ -373,7 +373,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
-  max-width: 88%;
+  max-width: 92%;
   box-shadow: var(--shadow-sm);
 }
 .msg-group.self .msg {
@@ -1334,6 +1334,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   background: var(--surface2);
   overflow: hidden;
   transition: all 0.2s ease;
+  width: 100%;
 }
 .working-header {
   display: flex;
@@ -1415,25 +1416,25 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   margin-bottom: 2px;
 }
 .step-summary {
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-mono);
   color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-all;
+  line-height: 1.4;
 }
 .step-result {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-dim);
   margin-top: 4px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   background: var(--surface);
   border-radius: var(--radius-sm);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 60px;
-  overflow: hidden;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.4;
 }
 .step-result.error { color: var(--danger); background: var(--danger-soft); }
 
