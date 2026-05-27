@@ -57,14 +57,39 @@ function executeTool(name, args) {
   try {
     if (name === 'run_command') {
       const cmd = args.command || '';
-      const blocked = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
-      if (blocked.some(b => cmd.includes(b))) {
+      // Normalized blocklist — check against normalized form to catch variants
+      const normalized = cmd.replace(/\s+/g, ' ').trim().toLowerCase();
+      const blockedPatterns = [
+        /rm\s+(-[a-z]*[rf]|--recursive)\s+[\/~]/i,
+        /rm\s+[\/~]/i,
+        /\bmkfs\b/i,
+        /\bdd\s+if=/i,
+        /:\(\)\s*\{/,       // fork bomb
+        /fork\s*bomb/i,
+        />\s*\/dev\/sd/i,   // overwrite disk
+        /\bshutdown\b/i,
+        /\breboot\b/i,
+        /\binit\s+0/i,
+        /\bchmod\s+777\s+\//i,
+        /\bchown\b.*\//i,
+        /\bkill\s+-9\s+1\b/i,  // kill init
+        /\bwget\b.*\|\s*sh/i,  // pipe to shell
+        /\bcurl\b.*\|\s*(sh|bash)/i,
+        /\bnc\s+-l/i,          // netcat listener
+        /\bpython[23]?\s+-c.*import\s+os.*system/i,
+      ];
+      if (blockedPatterns.some(p => p.test(cmd)) || blockedPatterns.some(p => p.test(normalized))) {
         return '⚠️ 该命令被安全策略阻止';
       }
       const output = execSync(cmd, { timeout: 30000, maxBuffer: 50 * 1024, encoding: 'utf8' });
       return output.slice(0, 4000) || '(命令执行成功，无输出)';
     } else if (name === 'read_file') {
       const filePath = args.path || '';
+      // Prevent reading sensitive files
+      const sensitivePaths = ['/etc/shadow', '/etc/passwd', '/root/.ssh', '/proc/self'];
+      if (sensitivePaths.some(p => filePath.startsWith(p))) {
+        return '⚠️ 该文件路径被安全策略阻止';
+      }
       if (!fs.existsSync(filePath)) return `文件不存在: ${filePath}`;
       const content = fs.readFileSync(filePath, 'utf8');
       return content.slice(0, 4000);
@@ -322,9 +347,11 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
     respondingAgents = members.filter(m => m.id !== senderId && m.id !== 'system' && m.id !== 'user');
   } else if (mentions.length > 0) {
     respondingAgents = members.filter(m => mentions.includes(m.id));
-  } else if (chainDepth === 0) {
+  } else if (chainDepth === 0 && roomType === 'dm') {
+    // DM: all non-sender agents respond
     respondingAgents = members.filter(m => m.id !== senderId && m.id !== 'system' && m.id !== 'user');
   }
+  // Group chats without @mentions: no auto-reply (agents must be explicitly mentioned)
 
   if (respondingAgents.length === 0) return;
 

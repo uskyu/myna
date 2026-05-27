@@ -7,7 +7,12 @@ const router = express.Router();
 // Admin auth middleware
 router.use((req, res, next) => {
   const secretKey = process.env.SECRET_KEY;
-  if (!secretKey || secretKey === 'change-me-to-a-random-string') {
+  if (!secretKey) {
+    console.warn('[SECURITY] SECRET_KEY not set! Admin API is unprotected. Set SECRET_KEY in .env');
+    return next();
+  }
+  if (secretKey === 'change-me-to-a-random-string') {
+    console.warn('[SECURITY] SECRET_KEY is still the default value! Admin API is unprotected.');
     return next();
   }
   const auth = req.headers.authorization;
@@ -114,6 +119,19 @@ router.get('/rooms/:id/messages', async (req, res) => {
   const { limit, before_id } = req.query;
   const messages = await db.getRoomMessages(req.params.id, parseInt(limit) || 50, before_id ? parseInt(before_id) : null);
   res.json({ ok: true, result: messages });
+});
+
+// Clear room messages
+router.delete('/rooms/:id/messages', async (req, res) => {
+  const db = getDatabase();
+  const roomId = req.params.id;
+  // Delete all messages in this room
+  if (db.driver === 'mysql') {
+    await db.conn.execute('DELETE FROM messages WHERE room_id = ?', [roomId]);
+  } else {
+    db.conn.prepare('DELETE FROM messages WHERE room_id = ?').run(roomId);
+  }
+  res.json({ ok: true });
 });
 
 // Send message (user sends) — triggers AI reply

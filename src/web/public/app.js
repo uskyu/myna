@@ -42,7 +42,7 @@ const SLASH_COMMANDS = [
 
 function getAgentColor(idx) { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 function getAgentIcon(idx) { return AGENT_ICONS[idx % AGENT_ICONS.length]; }
-function escapeHtml(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escapeHtml(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function renderMarkdown(text) {
   if (!text) return '';
@@ -54,6 +54,12 @@ function renderMarkdown(text) {
       html = html.replace(/<table>/g, '<div class="table-wrapper"><table>').replace(/<\/table>/g, '</table></div>');
       // Style images in messages
       html = html.replace(/<img /g, '<img style="max-width:100%;max-height:300px;border-radius:8px;cursor:pointer;display:block;margin:4px 0" onclick="window.open(this.src)" ');
+      // Add copy buttons to code blocks
+      html = html.replace(/<pre><code(.*?)>([\s\S]*?)<\/code><\/pre>/g, (match, attrs, code) => {
+        const decoded = code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+        const escaped = decoded.replace(/'/g, '&#39;').replace(/\\/g, '\\\\');
+        return `<pre><code${attrs}>${code}<button class="copy-btn" onclick="copyCode(this, '${btoa(unescape(encodeURIComponent(decoded)))}')">复制</button></code></pre>`;
+      });
       return html;
     } catch (e) {
       return escapeHtml(text);
@@ -62,14 +68,25 @@ function renderMarkdown(text) {
   return escapeHtml(text);
 }
 
-// Render user messages — support images/links but escape the rest
+// Copy code block content
+function copyCode(btn, encoded) {
+  try {
+    const text = decodeURIComponent(escape(atob(encoded)));
+    navigator.clipboard.writeText(text).then(() => {
+      btn.textContent = '已复制';
+      setTimeout(() => btn.textContent = '复制', 1500);
+    });
+  } catch(e) {
+    // Fallback
+    btn.textContent = '失败';
+    setTimeout(() => btn.textContent = '复制', 1500);
+  }
+}
+
+// Render user messages — full markdown support
 function renderUserMessage(text) {
   if (!text) return '';
-  // If contains markdown image or link syntax, use markdown renderer
-  if (/!\[.*?\]\(.*?\)|\[.*?\]\(\/uploads\/.*?\)/.test(text)) {
-    return renderMarkdown(text);
-  }
-  return escapeHtml(text);
+  return renderMarkdown(text);
 }
 
 function showToast(msg) {
@@ -132,6 +149,15 @@ function renderConversationList() {
   if (!rooms.length && !dms.length) { el.innerHTML = ''; empty.style.display = 'flex'; return; }
   empty.style.display = 'none';
 
+  // Collect active stream room IDs
+  const activeRoomIds = new Set();
+  const activeRoomAgents = {};
+  for (const sid in activeStreams) {
+    const s = activeStreams[sid];
+    activeRoomIds.add(s.roomId);
+    activeRoomAgents[s.roomId] = s.agentName;
+  }
+
   let html = '';
   // Groups
   if (rooms.length) {
@@ -140,10 +166,12 @@ function renderConversationList() {
       const preview = r.last_message ? r.last_message.sender_name + ': ' + r.last_message.text.slice(0, 30) : (r.members||[]).length + ' 个成员';
       const time = r.last_message ? (r.last_message.created_at||'').slice(11,16) : '';
       const color = AVATAR_COLORS[(i + 2) % AVATAR_COLORS.length];
+      const isActive = activeRoomIds.has(r.id);
+      const activeBadge = isActive ? '<span class="active-badge"><span class="pulse-dot"></span>' + escapeHtml(activeRoomAgents[r.id] || 'AI') + ' 生成中</span>' : '';
       return '<div class="chat-item" onclick="openChat(\''+r.id+'\',\'group\')">'+
         '<div class="avatar" style="background:'+color+'">'+GROUP_ICON+'</div>'+
         '<div class="info"><div class="name">'+escapeHtml(r.name)+'</div><div class="preview">'+escapeHtml(preview)+'</div></div>'+
-        '<div class="meta"><span class="time">'+time+'</span></div></div>';
+        '<div class="meta"><span class="time">'+time+'</span>'+activeBadge+'</div></div>';
     }).join('');
   }
   // DMs
@@ -156,10 +184,12 @@ function renderConversationList() {
       const icon = getAgentIcon(agentIdx >= 0 ? agentIdx : i);
       const preview = dm.last_message ? dm.last_message.text.slice(0, 30) : '开始对话';
       const time = dm.last_message ? (dm.last_message.created_at||'').slice(11,16) : '';
+      const isActive = activeRoomIds.has(dm.id);
+      const activeBadge = isActive ? '<span class="active-badge"><span class="pulse-dot"></span>生成中</span>' : '';
       return '<div class="chat-item" onclick="openChat(\''+dm.id+'\',\'dm\')">'+
         '<div class="avatar round" style="background:'+color+'">'+icon+'</div>'+
         '<div class="info"><div class="name">'+escapeHtml(agentName)+'</div><div class="preview">'+escapeHtml(preview)+'</div></div>'+
-        '<div class="meta"><span class="time">'+time+'</span></div></div>';
+        '<div class="meta"><span class="time">'+time+'</span>'+activeBadge+'</div></div>';
     }).join('');
   }
   el.innerHTML = html;
@@ -215,6 +245,9 @@ function closeChat() {
   document.getElementById('chat-view').classList.remove('active');
   currentRoomId = null;
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  // Refresh conversation list and agents to show updated last_message & status
+  loadConversations();
+  loadAgents();
 }
 
 async function refreshMessages() {
@@ -237,16 +270,50 @@ async function refreshMessages() {
     }
   }
 
-  let html = msgs.map(m => {
+  let html = '';
+  let prevSender = null;
+  let prevTime = null;
+  let groupOpen = false;
+
+  msgs.forEach((m, idx) => {
     const self = m.sender_id === 'user' || m.sender_id === 'system';
-    const showName = !self && currentRoomType === 'group';
+    const senderId = m.sender_id;
+    const msgTime = (m.created_at || '').slice(11, 16);
+    const msgDate = (m.created_at || '').slice(0, 10);
+    const prevDate = prevTime ? prevTime.slice(0, 10) : null;
+
+    // Time separator between different days or >30min gaps
+    if (prevDate && msgDate !== prevDate) {
+      if (groupOpen) { html += '</div>'; groupOpen = false; }
+      html += `<div class="time-separator"><span>${msgDate}</span></div>`;
+    }
+
+    // Check if this is a continuation of the same sender group
+    const sameGroup = senderId === prevSender && (self || currentRoomType === 'group');
+
+    if (!sameGroup) {
+      // Close previous group
+      if (groupOpen) html += '</div>';
+      // Open new group
+      const showName = !self && currentRoomType === 'group';
+      html += `<div class="msg-group ${self ? 'self' : ''}">`;
+      groupOpen = true;
+    }
+
     const rendered = self ? renderUserMessage(m.text) : renderMarkdown(m.text);
-    return '<div class="msg '+(self?'self':'other')+'">'+
-      (showName ? '<div class="sender-name">'+escapeHtml(m.sender_name)+'</div>' : '')+
-      '<div class="msg-text">'+rendered+'</div>'+
-      '<div class="msg-time">'+(m.created_at||'').slice(11,16)+'</div></div>';
-  }).join('');
-  
+    const showName = !self && currentRoomType === 'group' && !sameGroup;
+
+    html += '<div class="msg ' + (self ? 'self' : 'other') + '">' +
+      (showName ? '<div class="sender-name">' + escapeHtml(m.sender_name) + '</div>' : '') +
+      '<div class="msg-text">' + rendered + '</div>' +
+      '<div class="msg-time">' + msgTime + '</div></div>';
+
+    prevSender = senderId;
+    prevTime = m.created_at;
+  });
+
+  if (groupOpen) html += '</div>';
+
   // Keep typing indicator at end
   area.innerHTML = html;
   area.appendChild(indicator);
@@ -385,9 +452,16 @@ async function sendMsg() {
 function handleSlashCommand(text) {
   const cmd = text.split(' ')[0];
   if (cmd === '/clear') {
-    showToast('对话已清空（仅前端）');
-    document.getElementById('messages-area').innerHTML = '';
-    document.getElementById('messages-area').appendChild(document.getElementById('typing-indicator'));
+    if (currentRoomId) {
+      api('DELETE', '/admin/rooms/' + currentRoomId + '/messages').then(data => {
+        if (data.ok) {
+          showToast('对话已清空');
+          refreshMessages();
+        } else {
+          showToast('清空失败: ' + (data.error || '未知错误'));
+        }
+      });
+    }
   } else if (cmd === '/help') {
     showToast('可用指令: /clear /help /members');
   } else if (cmd === '/members') {
@@ -526,15 +600,27 @@ function triggerAtMenu() {
 async function loadAgents() {
   const data = await api('GET', '/admin/agents');
   agents = (data.result || []).filter(a => a.id !== 'system' && a.id !== 'user');
+  // Sync sort dropdown
+  const sortSelect = document.getElementById('agent-sort-select');
+  if (sortSelect) sortSelect.value = agentSort;
   renderAgents();
 }
 
 function renderAgents() {
   const el = document.getElementById('agent-grid');
   const empty = document.getElementById('agents-empty');
-  if (!agents.length) { el.innerHTML = ''; empty.style.display = 'flex'; return; }
-  empty.style.display = 'none';
   const sorted = getSortedAgents();
+  if (!sorted.length) {
+    el.innerHTML = '';
+    empty.style.display = 'flex';
+    if (agentFilter) {
+      empty.querySelector('p').textContent = '没有匹配的智能体';
+    } else {
+      empty.querySelector('p').textContent = '还没有智能体';
+    }
+    return;
+  }
+  empty.style.display = 'none';
   el.innerHTML = sorted.map((a) => {
     const i = agents.indexOf(a);
     return '<div class="agent-card" onclick="openAgentDetail(\'' + a.id + '\')">' +
@@ -974,6 +1060,7 @@ connectWebSocket();
 // ===== AGENT VIEW & SORT =====
 let agentView = localStorage.getItem('hub-agent-view') || 'grid';
 let agentSort = localStorage.getItem('hub-agent-sort') || 'default';
+let agentFilter = '';
 
 function setAgentView(view) {
   agentView = view;
@@ -992,10 +1079,24 @@ function sortAgents(sort) {
   renderAgents();
 }
 
+function filterAgents(query) {
+  agentFilter = (query || '').toLowerCase().trim();
+  renderAgents();
+}
+
 function getSortedAgents() {
   let sorted = [...agents];
+  // Apply filter
+  if (agentFilter) {
+    sorted = sorted.filter(a =>
+      (a.name || '').toLowerCase().includes(agentFilter) ||
+      (a.description || '').toLowerCase().includes(agentFilter)
+    );
+  }
+  // Apply sort
   if (agentSort === 'name') sorted.sort((a, b) => a.name.localeCompare(b.name));
   else if (agentSort === 'status') sorted.sort((a, b) => (a.status === 'online' ? -1 : 1) - (b.status === 'online' ? -1 : 1));
+  else if (agentSort === 'newest') sorted.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   return sorted;
 }
 
@@ -1058,6 +1159,8 @@ function handleWSMessage(msg) {
       
       // Update message list to show typing indicator for this room
       updateRoomTypingState(room_id, true, agent_name);
+      // Update conversation list to show active badge
+      renderConversationList();
 
       // If we're viewing this room, create a streaming bubble
       if (room_id === currentRoomId) {
@@ -1066,6 +1169,10 @@ function handleWSMessage(msg) {
         indicator.classList.remove('active');
         
         const area = document.getElementById('messages-area');
+        // Create a group for the streaming agent
+        const group = document.createElement('div');
+        group.className = 'msg-group';
+        group.id = `stream-group-${stream_id}`;
         const bubble = document.createElement('div');
         bubble.className = 'msg other streaming';
         bubble.id = `stream-${stream_id}`;
@@ -1074,7 +1181,8 @@ function handleWSMessage(msg) {
           (showName ? `<div class="sender-name">${escapeHtml(agent_name)}</div>` : '') +
           '<div class="msg-text"><span class="stream-cursor">▊</span></div>' +
           '<div class="msg-time">生成中...</div>';
-        area.insertBefore(bubble, indicator);
+        group.appendChild(bubble);
+        area.insertBefore(group, indicator);
         area.scrollTop = area.scrollHeight;
       }
       break;
@@ -1115,10 +1223,15 @@ function handleWSMessage(msg) {
           const timeEl = bubble.querySelector('.msg-time');
           timeEl.textContent = new Date().toTimeString().slice(0, 5);
         }
+        // Remove group wrapper ID to avoid conflicts
+        const group = document.getElementById(`stream-group-${stream_id}`);
+        if (group) group.removeAttribute('id');
       }
       delete activeStreams[stream_id];
       // Update message list — remove typing, show latest text
       updateRoomTypingState(stream.roomId, false, null, stream.text);
+      // Refresh conversation list to remove active badge
+      renderConversationList();
       break;
     }
 

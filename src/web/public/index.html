@@ -108,10 +108,10 @@
     .typing-indicator .dots span:nth-child(3) { animation-delay: 0.4s; }
     @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
     .msg.streaming .msg-text { min-height: 20px; }
-    .stream-cursor { animation: blink 0.8s infinite; color: var(--primary); font-weight: bold; }
+    .stream-cursor { animation: blink 0.8s infinite; color: var(--accent); font-weight: bold; }
     @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
-    .typing-dots { display: inline-flex; align-items: center; gap: 3px; color: var(--primary); font-size: 12px; }
-    .typing-dots .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--primary); animation: bounce 1.4s infinite; display: inline-block; }
+    .typing-dots { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); font-size: 12px; }
+    .typing-dots .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: bounce 1.4s infinite; display: inline-block; }
     .typing-dots .dot:nth-child(2) { animation-delay: 0.2s; }
     .typing-dots .dot:nth-child(3) { animation-delay: 0.4s; }
 
@@ -275,6 +275,80 @@
     .agent-profile .profile-section .profile-list { font-size: 14px; line-height: 1.6; }
     .agent-profile .profile-section .profile-list-item { padding: 6px 0; border-bottom: 0.5px solid var(--border); }
     .agent-profile .profile-section .profile-list-item:last-child { border-bottom: none; }
+
+    /* === NEW: Message entry animation === */
+    @keyframes msgSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .msg { animation: msgSlideIn 0.2s ease-out; }
+    .msg.no-anim { animation: none; }
+
+    /* === NEW: Streaming bubble pulse === */
+    .msg.streaming { position: relative; }
+    .msg.streaming::after { content: ''; position: absolute; bottom: -2px; left: 12px; right: 12px; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: streamPulse 1.5s ease-in-out infinite; border-radius: 1px; }
+    @keyframes streamPulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+    /* === NEW: Message grouping === */
+    .msg-group { display: flex; flex-direction: column; gap: 2px; }
+    .msg-group .msg:not(:first-child) { padding-top: 4px; }
+    .msg-group .msg:not(:first-child) .sender-name { display: none; }
+    .msg-group .msg:not(:last-child) .msg-time { display: none; }
+    .msg-group .msg:not(:first-child) { border-radius: 6px 18px 18px 6px; }
+    .msg-group.self .msg:not(:first-child) { border-radius: 18px 6px 6px 18px; }
+
+    /* === NEW: Time separator === */
+    .time-separator { text-align: center; padding: 12px 0; }
+    .time-separator span { font-size: 11px; color: var(--text-dim); background: var(--surface2); padding: 3px 10px; border-radius: 10px; }
+
+    /* === NEW: Active room indicator === */
+    .chat-item .meta .active-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--accent); background: var(--accent-light); padding: 2px 8px; border-radius: 10px; }
+    .chat-item .meta .active-badge .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulseGlow 1.5s infinite; }
+    @keyframes pulseGlow { 0%,100% { opacity: 0.5; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }
+
+    /* === NEW: Search bar === */
+    .search-bar { padding: 8px 12px; background: var(--surface); }
+    .search-bar input { width: 100%; padding: 8px 12px 8px 32px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; background: var(--surface2); color: var(--text); font-family: inherit; }
+    .search-bar input:focus { outline: none; border-color: var(--accent); }
+    .search-bar .search-icon { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); color: var(--text-dim); pointer-events: none; }
+    .search-bar { position: relative; }
+
+    /* === NEW: Sort dropdown === */
+    .sort-controls { display: flex; gap: 8px; align-items: center; }
+    .sort-controls select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--surface); color: var(--text); font-family: inherit; cursor: pointer; }
+
+    /* === NEW: Code blocks theme-aware === */
+    [data-theme="dark"] .msg .msg-text pre { background: #1e1e2e; color: #cdd6f4; }
+    [data-theme="dark"] .msg .msg-text pre code { color: #cdd6f4; }
+    .msg .msg-text pre { position: relative; }
+    .msg .msg-text pre .copy-btn { position: absolute; top: 6px; right: 6px; padding: 3px 8px; font-size: 11px; background: rgba(255,255,255,0.1); border: none; border-radius: 4px; color: inherit; cursor: pointer; opacity: 0; transition: opacity 0.2s; }
+    .msg .msg-text pre:hover .copy-btn { opacity: 1; }
+
+    /* === NEW: Responsive breakpoints === */
+    @media (min-width: 768px) {
+      .chat-view { max-width: 600px; left: 50%; transform: translateX(-50%); border-left: 0.5px solid var(--border); border-right: 0.5px solid var(--border); }
+      .agent-detail { max-width: 600px; left: 50%; transform: translateX(-50%); border-left: 0.5px solid var(--border); border-right: 0.5px solid var(--border); }
+      .agent-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; padding: 16px; }
+    }
+    @media (min-width: 1024px) {
+      .chat-view { max-width: 700px; }
+      .agent-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+    }
+    @media (min-width: 1280px) {
+      .app-inner { display: flex; flex-direction: row; }
+      .page { position: relative; flex-shrink: 0; width: 380px; border-right: 0.5px solid var(--border); }
+      .page:not(.active) { display: none; }
+      .chat-view { position: relative; flex: 1; max-width: none; left: auto; transform: none; z-index: auto; border: none; }
+      .agent-detail { position: relative; flex: 1; max-width: none; left: auto; transform: none; z-index: auto; border: none; }
+    }
+
+    /* === NEW: Improved agent cards === */
+    .agent-card { padding: 16px; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; min-height: 140px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .agent-card:active { transform: scale(0.97); }
+    .agent-card .card-actions button { padding: 10px 0; font-size: 13px; min-height: 44px; }
+    .agent-card .card-actions .btn-chat { flex: 1.5; }
+
+    /* === NEW: Empty state for streaming === */
+    .streaming-empty { text-align: center; padding: 20px; color: var(--text-dim); font-size: 13px; }
+    .streaming-empty .streaming-agent { font-weight: 600; color: var(--accent); }
+
   </style>
 </head>
 <body>
@@ -330,7 +404,16 @@
           <div class="sort-controls">
             <button class="view-btn active" id="view-grid-btn" onclick="setAgentView('grid')"><i class="lucide-grid-2x2"></i> 卡片</button>
             <button class="view-btn" id="view-list-btn" onclick="setAgentView('list')"><i class="lucide-list"></i> 列表</button>
+            <select id="agent-sort-select" onchange="sortAgents(this.value)" style="margin-left:auto">
+              <option value="name">名称排序</option>
+              <option value="status">状态排序</option>
+              <option value="newest">最新创建</option>
+            </select>
           </div>
+        </div>
+        <div class="search-bar" id="agent-search-bar">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="agent-search-input" placeholder="搜索智能体..." oninput="filterAgents(this.value)">
         </div>
         <div class="agent-grid" id="agent-grid"></div>
         <div class="empty" id="agents-empty" style="display:none">
