@@ -195,7 +195,12 @@ function renderConversationList() {
   el.innerHTML = html;
 }
 
-// Update room list item to show typing/streaming state
+// Debounced conversation list refresh to prevent flicker
+let _convListTimer = null;
+function renderConversationListDebounced() {
+  if (_convListTimer) clearTimeout(_convListTimer);
+  _convListTimer = setTimeout(renderConversationList, 300);
+}
 function updateRoomTypingState(roomId, isTyping, agentName, lastText) {
   const chatItems = document.querySelectorAll('.chat-item');
   for (const item of chatItems) {
@@ -219,6 +224,8 @@ function updateRoomTypingState(roomId, isTyping, agentName, lastText) {
 function openChat(roomId, type) {
   currentRoomId = roomId;
   currentRoomType = type || 'group';
+  lastRenderedMsgCount = 0;
+  lastRenderedMsgId = 0;
   let title = '';
   let subtitle = '';
   if (type === 'dm') {
@@ -250,6 +257,9 @@ function closeChat() {
   loadAgents();
 }
 
+let lastRenderedMsgCount = 0;
+let lastRenderedMsgId = 0;
+
 async function refreshMessages() {
   if (!currentRoomId) return;
   // Don't refresh while streaming — the WS handles live updates
@@ -259,7 +269,6 @@ async function refreshMessages() {
   const msgs = data.result || [];
   const area = document.getElementById('messages-area');
   const indicator = document.getElementById('typing-indicator');
-  const atBottom = area.scrollHeight - area.scrollTop <= area.clientHeight + 80;
 
   // Check if we got a new AI reply
   if (isWaitingReply && msgs.length > 0) {
@@ -269,6 +278,15 @@ async function refreshMessages() {
       indicator.classList.remove('active');
     }
   }
+
+  // Skip re-render if nothing changed
+  const latestId = msgs.length > 0 ? msgs[msgs.length - 1].id : 0;
+  if (msgs.length === lastRenderedMsgCount && latestId === lastRenderedMsgId) return;
+  
+  const atBottom = area.scrollHeight - area.scrollTop <= area.clientHeight + 80;
+  
+  lastRenderedMsgCount = msgs.length;
+  lastRenderedMsgId = latestId;
 
   let html = '';
   let prevSender = null;
@@ -282,7 +300,7 @@ async function refreshMessages() {
     const msgDate = (m.created_at || '').slice(0, 10);
     const prevDate = prevTime ? prevTime.slice(0, 10) : null;
 
-    // Time separator between different days or >30min gaps
+    // Time separator between different days
     if (prevDate && msgDate !== prevDate) {
       if (groupOpen) { html += '</div>'; groupOpen = false; }
       html += `<div class="time-separator"><span>${msgDate}</span></div>`;
@@ -292,10 +310,7 @@ async function refreshMessages() {
     const sameGroup = senderId === prevSender && (self || currentRoomType === 'group');
 
     if (!sameGroup) {
-      // Close previous group
       if (groupOpen) html += '</div>';
-      // Open new group
-      const showName = !self && currentRoomType === 'group';
       html += `<div class="msg-group ${self ? 'self' : ''}">`;
       groupOpen = true;
     }
@@ -314,7 +329,6 @@ async function refreshMessages() {
 
   if (groupOpen) html += '</div>';
 
-  // Keep typing indicator at end
   area.innerHTML = html;
   area.appendChild(indicator);
   if (atBottom || msgs.length <= 10) area.scrollTop = area.scrollHeight;
@@ -1159,8 +1173,8 @@ function handleWSMessage(msg) {
       
       // Update message list to show typing indicator for this room
       updateRoomTypingState(room_id, true, agent_name);
-      // Update conversation list to show active badge
-      renderConversationList();
+      // Update conversation list to show active badge (debounced to prevent flicker)
+      renderConversationListDebounced();
 
       // If we're viewing this room, create a streaming bubble
       if (room_id === currentRoomId) {
@@ -1227,11 +1241,14 @@ function handleWSMessage(msg) {
         const group = document.getElementById(`stream-group-${stream_id}`);
         if (group) group.removeAttribute('id');
       }
+      // Reset counters so next refreshMessages() can detect changes
+      lastRenderedMsgCount = 0;
+      lastRenderedMsgId = 0;
       delete activeStreams[stream_id];
       // Update message list — remove typing, show latest text
       updateRoomTypingState(stream.roomId, false, null, stream.text);
-      // Refresh conversation list to remove active badge
-      renderConversationList();
+      // Refresh conversation list to remove active badge (debounced)
+      renderConversationListDebounced();
       break;
     }
 
