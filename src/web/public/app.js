@@ -52,10 +52,22 @@ function renderMarkdown(text) {
       let html = marked.parse(text);
       // Wrap tables in scrollable container
       html = html.replace(/<table>/g, '<div class="table-wrapper"><table>').replace(/<\/table>/g, '</table></div>');
+      // Style images in messages
+      html = html.replace(/<img /g, '<img style="max-width:100%;max-height:300px;border-radius:8px;cursor:pointer;display:block;margin:4px 0" onclick="window.open(this.src)" ');
       return html;
     } catch (e) {
       return escapeHtml(text);
     }
+  }
+  return escapeHtml(text);
+}
+
+// Render user messages — support images/links but escape the rest
+function renderUserMessage(text) {
+  if (!text) return '';
+  // If contains markdown image or link syntax, use markdown renderer
+  if (/!\[.*?\]\(.*?\)|\[.*?\]\(\/uploads\/.*?\)/.test(text)) {
+    return renderMarkdown(text);
   }
   return escapeHtml(text);
 }
@@ -153,6 +165,26 @@ function renderConversationList() {
   el.innerHTML = html;
 }
 
+// Update room list item to show typing/streaming state
+function updateRoomTypingState(roomId, isTyping, agentName, lastText) {
+  const chatItems = document.querySelectorAll('.chat-item');
+  for (const item of chatItems) {
+    const onclick = item.getAttribute('onclick') || '';
+    if (!onclick.includes(roomId)) continue;
+    
+    const previewEl = item.querySelector('.preview');
+    if (!previewEl) continue;
+    
+    if (isTyping) {
+      previewEl.innerHTML = '<span class="typing-dots">' + (agentName ? escapeHtml(agentName) + ' ' : '') + 
+        '<span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+    } else if (lastText) {
+      previewEl.textContent = lastText.slice(0, 40);
+    }
+    break;
+  }
+}
+
 // ===== CHAT VIEW =====
 function openChat(roomId, type) {
   currentRoomId = roomId;
@@ -208,7 +240,7 @@ async function refreshMessages() {
   let html = msgs.map(m => {
     const self = m.sender_id === 'user' || m.sender_id === 'system';
     const showName = !self && currentRoomType === 'group';
-    const rendered = self ? escapeHtml(m.text) : renderMarkdown(m.text);
+    const rendered = self ? renderUserMessage(m.text) : renderMarkdown(m.text);
     return '<div class="msg '+(self?'self':'other')+'">'+
       (showName ? '<div class="sender-name">'+escapeHtml(m.sender_name)+'</div>' : '')+
       '<div class="msg-text">'+rendered+'</div>'+
@@ -221,13 +253,74 @@ async function refreshMessages() {
   if (atBottom || msgs.length <= 10) area.scrollTop = area.scrollHeight;
 }
 
+// ===== FILE UPLOAD =====
+let pendingAttachments = []; // [{url, type, name, size}]
+
+function triggerFileUpload() {
+  document.getElementById('file-input').click();
+}
+
+async function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  event.target.value = ''; // reset for re-select
+  
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const previewEl = document.getElementById('upload-preview');
+  previewEl.style.display = 'flex';
+  previewEl.innerHTML = '<div style="display:flex;align-items:center;gap:8px;width:100%"><span style="font-size:12px;color:var(--text-dim)">上传中...</span></div>';
+  
+  try {
+    const resp = await fetch('/admin/upload', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (data.ok) {
+      pendingAttachments.push(data);
+      renderUploadPreview();
+    } else {
+      previewEl.innerHTML = '<span style="color:var(--danger);font-size:12px">上传失败: ' + escapeHtml(data.error || '未知错误') + '</span>';
+      setTimeout(() => { previewEl.style.display = 'none'; }, 2000);
+    }
+  } catch(e) {
+    previewEl.innerHTML = '<span style="color:var(--danger);font-size:12px">上传失败</span>';
+    setTimeout(() => { previewEl.style.display = 'none'; }, 2000);
+  }
+}
+
+function renderUploadPreview() {
+  const previewEl = document.getElementById('upload-preview');
+  if (!pendingAttachments.length) { previewEl.style.display = 'none'; return; }
+  previewEl.style.display = 'flex';
+  previewEl.style.gap = '8px';
+  previewEl.style.flexWrap = 'wrap';
+  previewEl.style.alignItems = 'center';
+  previewEl.innerHTML = pendingAttachments.map((att, i) => {
+    if (att.type === 'image') {
+      return '<div style="position:relative;display:inline-block">' +
+        '<img src="' + att.url + '" style="height:60px;border-radius:8px;object-fit:cover">' +
+        '<button onclick="removeAttachment(' + i + ')" style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:white;border:none;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>';
+    }
+    return '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface2);border-radius:8px;position:relative">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;flex-shrink:0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+      '<span style="font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(att.name) + '</span>' +
+      '<button onclick="removeAttachment(' + i + ')" style="margin-left:4px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px">×</button></div>';
+  }).join('');
+}
+
+function removeAttachment(idx) {
+  pendingAttachments.splice(idx, 1);
+  renderUploadPreview();
+}
+
 async function sendMsg() {
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
-  if (!text || !currentRoomId) return;
+  if (!text && !pendingAttachments.length) return;
+  if (!currentRoomId) return;
 
   // Handle slash commands
-  if (text.startsWith('/')) {
+  if (text.startsWith('/') && !pendingAttachments.length) {
     handleSlashCommand(text);
     input.value = ''; autoResize(input);
     return;
@@ -235,6 +328,11 @@ async function sendMsg() {
 
   input.value = ''; autoResize(input);
   hideAutocomplete();
+
+  // Collect attachments
+  const attachments = [...pendingAttachments];
+  pendingAttachments = [];
+  renderUploadPreview();
 
   // Parse @mentions
   const mentions = [];
@@ -245,13 +343,28 @@ async function sendMsg() {
     if (agent) mentions.push(agent.id);
   }
 
+  // Build message text with attachments
+  let fullText = text;
+  if (attachments.length) {
+    const attParts = attachments.map(a => a.type === 'image' ? `![${a.name}](${a.url})` : `[${a.name}](${a.url})`);
+    fullText = fullText ? fullText + '\n' + attParts.join('\n') : attParts.join('\n');
+  }
+
   // Immediately show user's message in the chat (optimistic UI)
   const area = document.getElementById('messages-area');
   const indicator = document.getElementById('typing-indicator');
   const bubble = document.createElement('div');
   bubble.className = 'msg self';
-  bubble.innerHTML = '<div class="msg-text">' + escapeHtml(text) + '</div>' +
-    '<div class="msg-time">' + new Date().toTimeString().slice(0, 5) + '</div>';
+  let msgHtml = '';
+  if (attachments.length) {
+    msgHtml += attachments.map(a => {
+      if (a.type === 'image') return '<img src="' + a.url + '" style="max-width:200px;max-height:200px;border-radius:8px;margin-bottom:4px;display:block;cursor:pointer" onclick="window.open(this.src)">';
+      return '<a href="' + a.url + '" target="_blank" style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--accent);margin-bottom:4px">📎 ' + escapeHtml(a.name) + '</a>';
+    }).join('');
+  }
+  if (text) msgHtml += '<div class="msg-text">' + escapeHtml(text) + '</div>';
+  msgHtml += '<div class="msg-time">' + new Date().toTimeString().slice(0, 5) + '</div>';
+  bubble.innerHTML = msgHtml;
   area.insertBefore(bubble, indicator);
   area.scrollTop = area.scrollHeight;
 
@@ -260,7 +373,7 @@ async function sendMsg() {
   indicator.classList.add('active');
   area.scrollTop = area.scrollHeight;
 
-  await api('POST', '/admin/rooms/' + currentRoomId + '/send', { text, mentions });
+  await api('POST', '/admin/rooms/' + currentRoomId + '/send', { text: fullText, mentions });
 
   // Auto-hide typing after 60s max
   setTimeout(() => {
@@ -943,6 +1056,9 @@ function handleWSMessage(msg) {
       const { stream_id, room_id, agent_id, agent_name } = msg;
       activeStreams[stream_id] = { roomId: room_id, agentId: agent_id, agentName: agent_name, text: '' };
       
+      // Update message list to show typing indicator for this room
+      updateRoomTypingState(room_id, true, agent_name);
+
       // If we're viewing this room, create a streaming bubble
       if (room_id === currentRoomId) {
         isWaitingReply = false;
@@ -1001,6 +1117,8 @@ function handleWSMessage(msg) {
         }
       }
       delete activeStreams[stream_id];
+      // Update message list — remove typing, show latest text
+      updateRoomTypingState(stream.roomId, false, null, stream.text);
       break;
     }
 

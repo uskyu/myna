@@ -40,6 +40,28 @@ app.use('/admin/config', configRouter); // /admin/config
 // Static web UI
 app.use(express.static(path.join(__dirname, 'web', 'public')));
 
+// Uploaded files static serve
+app.use('/uploads', express.static(path.join(__dirname, '..', 'data', 'uploads')));
+
+// File upload endpoint
+const multer = require('multer');
+const storage = multer.diskStorage({
+  destination: path.join(__dirname, '..', 'data', 'uploads'),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + ext;
+    cb(null, name);
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB max
+
+app.post('/admin/upload', upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: 'No file' });
+  const url = '/uploads/' + req.file.filename;
+  const type = req.file.mimetype.startsWith('image/') ? 'image' : 'file';
+  res.json({ ok: true, url, type, name: req.file.originalname, size: req.file.size });
+});
+
 // Health check
 app.get('/health', async (req, res) => {
   const db = getDatabase();

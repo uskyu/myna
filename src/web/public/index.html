@@ -110,6 +110,10 @@
     .msg.streaming .msg-text { min-height: 20px; }
     .stream-cursor { animation: blink 0.8s infinite; color: var(--primary); font-weight: bold; }
     @keyframes blink { 0%,50% { opacity: 1; } 51%,100% { opacity: 0; } }
+    .typing-dots { display: inline-flex; align-items: center; gap: 3px; color: var(--primary); font-size: 12px; }
+    .typing-dots .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--primary); animation: bounce 1.4s infinite; display: inline-block; }
+    .typing-dots .dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots .dot:nth-child(3) { animation-delay: 0.4s; }
 
     /* Input bar with @ and / support */
     .input-bar { padding: 8px 12px; background: var(--surface); border-top: 0.5px solid var(--border); display: flex; gap: 8px; align-items: flex-end; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0)); flex-shrink: 0; position: relative; }
@@ -302,12 +306,15 @@
               <div class="dots"><span></span><span></span><span></span></div>
             </div>
           </div>
+          <div id="upload-preview" style="display:none;padding:8px 12px;background:var(--surface);border-top:0.5px solid var(--border)"></div>
           <div class="input-bar">
             <div class="autocomplete" id="autocomplete"></div>
             <button class="at-btn" onclick="triggerAtMenu()" title="@提及"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0V12a10 10 0 1 0-3.92 7.94"/></svg></button>
+            <button class="at-btn" onclick="triggerFileUpload()" title="上传文件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
             <textarea id="msg-input" rows="1" placeholder="输入消息..." oninput="onInputChange(this)" onkeydown="onInputKeydown(event)"></textarea>
             <button class="send-btn" onclick="sendMsg()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></button>
           </div>
+          <input type="file" id="file-input" style="display:none" accept="image/*,.pdf,.doc,.docx,.txt,.md,.json,.csv,.zip" onchange="handleFileSelect(event)">
         </div>
       </div>
 
