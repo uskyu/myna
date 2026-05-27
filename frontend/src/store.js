@@ -18,7 +18,8 @@ export const store = reactive({
   agents: [],
   rooms: [],
   dms: [],
-  activeStreams: {}, // streamId -> { roomId, agentId, agentName, text }
+  activeStreams: {},
+  initialized: false,
 })
 
 export async function loadAgents() {
@@ -33,19 +34,21 @@ export async function loadConversations() {
   ])
   store.rooms = (roomData.result || []).filter(r => r.type !== 'dm')
   store.dms = dmData.result || []
+  store.initialized = true
 }
 
 // WebSocket
 export const ws = {
   _ws: null,
   _handlers: [],
+  _reconnectTimer: null,
   connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     this._ws = new WebSocket(`${proto}//${location.host}/ws?ui=1`)
     this._ws.onopen = () => console.log('[WS] Connected')
     this._ws.onclose = () => {
       console.log('[WS] Disconnected, reconnecting in 3s...')
-      setTimeout(() => this.connect(), 3000)
+      this._reconnectTimer = setTimeout(() => this.connect(), 3000)
     }
     this._ws.onerror = () => {}
     this._ws.onmessage = (e) => {
@@ -57,19 +60,24 @@ export const ws = {
   },
   onMessage(handler) {
     this._handlers.push(handler)
+  },
+  destroy() {
+    clearTimeout(this._reconnectTimer)
+    this._ws?.close()
+    this._handlers = []
   }
 }
 
-// AVATAR_COLORS
+// Avatar palette — forest greens, ambers, warm earth tones (NO blue/purple)
 export const AVATAR_COLORS = [
-  'linear-gradient(135deg, #667eea, #764ba2)',
-  'linear-gradient(135deg, #f093fb, #f5576c)',
-  'linear-gradient(135deg, #4facfe, #00f2fe)',
-  'linear-gradient(135deg, #43e97b, #38f9d7)',
-  'linear-gradient(135deg, #fa709a, #fee140)',
-  'linear-gradient(135deg, #a18cd1, #fbc2eb)',
-  'linear-gradient(135deg, #ffecd2, #fcb69f)',
-  'linear-gradient(135deg, #89f7fe, #66a6ff)',
+  'linear-gradient(135deg, #2d6a4f, #40916c)',  // forest
+  'linear-gradient(135deg, #d97706, #b45309)',  // amber
+  'linear-gradient(135deg, #7c5e3c, #a07849)',  // bronze
+  'linear-gradient(135deg, #c44545, #9b2f2f)',  // brick
+  'linear-gradient(135deg, #4a8c6f, #2d6a4f)',  // sage
+  'linear-gradient(135deg, #b87333, #8b4513)',  // copper
+  'linear-gradient(135deg, #5e6e58, #3e4d3a)',  // moss
+  'linear-gradient(135deg, #d4a574, #a47148)',  // sand
 ]
 
 export const AGENT_ICONS = [
@@ -83,3 +91,15 @@ export const AGENT_ICONS = [
 export function getAgentColor(idx) { return AVATAR_COLORS[idx % AVATAR_COLORS.length] }
 export function getAgentIcon(idx) { return AGENT_ICONS[idx % AGENT_ICONS.length] }
 export function escapeHtml(s) { if (!s) return ''; return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
+
+export function timeAgo(dateStr) {
+  if (!dateStr) return ''
+  const now = Date.now()
+  const t = new Date(dateStr).getTime()
+  const diff = Math.floor((now - t) / 1000)
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return Math.floor(diff / 60) + '分钟前'
+  if (diff < 86400) return Math.floor(diff / 3600) + '小时前'
+  if (diff < 604800) return Math.floor(diff / 86400) + '天前'
+  return dateStr.slice(5, 10)
+}

@@ -4,15 +4,23 @@ const { processMessage } = require('../ai/index');
 
 const router = express.Router();
 
-// Admin auth middleware
+// Admin auth middleware (warn-once to avoid log spam)
+let _warnedNoSecret = false;
+let _warnedDefaultSecret = false;
 router.use((req, res, next) => {
   const secretKey = process.env.SECRET_KEY;
   if (!secretKey) {
-    console.warn('[SECURITY] SECRET_KEY not set! Admin API is unprotected. Set SECRET_KEY in .env');
+    if (!_warnedNoSecret) {
+      console.warn('[SECURITY] SECRET_KEY not set! Admin API is unprotected. Set SECRET_KEY in .env');
+      _warnedNoSecret = true;
+    }
     return next();
   }
   if (secretKey === 'change-me-to-a-random-string') {
-    console.warn('[SECURITY] SECRET_KEY is still the default value! Admin API is unprotected.');
+    if (!_warnedDefaultSecret) {
+      console.warn('[SECURITY] SECRET_KEY is still the default value! Admin API is unprotected.');
+      _warnedDefaultSecret = true;
+    }
     return next();
   }
   const auth = req.headers.authorization;
