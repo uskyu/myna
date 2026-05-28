@@ -2,116 +2,129 @@
   <div class="page admin-center">
     <div class="page-header">
       <h2>管理中心</h2>
-      <span class="page-subtitle">智能体配置 · 技能库</span>
     </div>
 
-    <!-- Agent execution settings -->
-    <div class="admin-section config-panel">
-      <div class="section-title-row">
-        <h3>⚙ 智能体执行</h3>
-      </div>
-      <div class="config-items">
-        <div class="config-item">
-          <span class="config-label">工具调用显示</span>
-          <div class="config-options">
-            <label v-for="opt in toolDisplayOptions" :key="opt.value" class="radio-option" :class="{ active: chatSettings.toolCallDisplay === opt.value }">
-              <input type="radio" name="tool-display" :value="opt.value" :checked="chatSettings.toolCallDisplay === opt.value" @change="onToolDisplayChange(opt.value)">
-              <span>{{ opt.label }}</span>
-            </label>
-          </div>
-        </div>
-        <div class="config-item">
-          <span class="config-label">最大执行轮数</span>
-          <span class="config-desc">单次响应的最大 API 调用轮数，到达后自动停止</span>
-          <div class="config-options">
-            <label v-for="opt in roundOptions" :key="opt.value" class="radio-option" :class="{ active: hubSettings.agent_max_rounds === opt.value }">
-              <input type="radio" name="rounds" :value="opt.value" :checked="hubSettings.agent_max_rounds === opt.value" @change="onRoundsChange(opt.value)">
-              <span>{{ opt.label }}</span>
-            </label>
-          </div>
-        </div>
-      </div>
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <div class="tab-item" :class="{ active: activeTab === 'config' }" @click="activeTab = 'config'">配置</div>
+      <div class="tab-item" :class="{ active: activeTab === 'skills' }" @click="activeTab = 'skills'">技能库</div>
+      <div class="tab-indicator" :style="{ transform: activeTab === 'skills' ? 'translateX(100%)' : 'translateX(0)' }"></div>
     </div>
 
-    <!-- Self-improvement settings -->
-    <div class="admin-section config-panel">
-      <div class="section-title-row">
-        <h3>🧠 自主进化</h3>
-        <div class="toggle" :class="{ on: hubSettings.self_improve_enabled === '1' }" @click="toggleSelfImprove"></div>
-      </div>
-      <div class="config-items" v-if="hubSettings.self_improve_enabled === '1'">
-        <div class="config-item">
-          <span class="config-label">触发阈值</span>
-          <span class="config-desc">工具调用次数达到此值后触发学习分析</span>
-          <div class="config-options">
-            <label v-for="opt in thresholdOptions" :key="opt.value" class="radio-option" :class="{ active: hubSettings.self_improve_threshold === opt.value }">
-              <input type="radio" name="threshold" :value="opt.value" :checked="hubSettings.self_improve_threshold === opt.value" @change="onThresholdChange(opt.value)">
-              <span>{{ opt.label }}</span>
-            </label>
+    <!-- Tab content (scrollable) -->
+    <div class="tab-content">
+
+      <!-- Config tab -->
+      <div v-show="activeTab === 'config'" class="tab-panel">
+        <div class="admin-section config-panel">
+          <div class="section-title-row">
+            <h3>⚙ 智能体执行</h3>
           </div>
-        </div>
-        <div class="config-item">
-          <span class="config-label">学习路径</span>
-          <span class="config-desc">智能体学到的技能保存位置（未单独设置时使用此全局配置）</span>
-          <div class="config-options">
-            <label v-for="opt in learnPathOptions" :key="opt.value" class="radio-option" :class="{ active: hubSettings.self_improve_path === opt.value }">
-              <input type="radio" name="learn-path" :value="opt.value" :checked="hubSettings.self_improve_path === opt.value" @change="onLearnPathChange(opt.value)">
-              <span>{{ opt.label }}</span>
-            </label>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Skills overview -->
-    <div class="admin-section">
-      <div class="section-title-row">
-        <h3>🛠 全局技能库</h3>
-        <span class="badge">{{ allSkills.length }}</span>
-        <div class="section-actions">
-          <button class="link-btn" @click="showCreateSkill = true">+ 创建</button>
-          <button class="link-btn" @click="triggerUpload">📁 上传</button>
-          <input ref="skillFileInput" type="file" accept=".md,.txt,.json,.yaml,.yml" style="display:none" @change="onSkillFileUpload" multiple />
-        </div>
-      </div>
-
-      <div v-if="allSkills.length === 0" class="empty-state">
-        <p>暂无技能，点击上方按钮创建或上传</p>
-      </div>
-
-      <!-- Group by agent -->
-      <div v-for="group in skillGroups" :key="group.agentId" class="skill-group">
-        <div class="skill-group-header">
-          <span class="skill-group-name">{{ group.agentName }}</span>
-          <span class="skill-group-count">{{ group.skills.length }} 个技能</span>
-        </div>
-        <div class="skill-grid">
-          <div v-for="skill in group.skills" :key="skill.id" class="skill-card">
-            <div class="skill-card-head">
-              <span class="skill-card-name">{{ skill.name }}</span>
-              <span class="skill-card-type">{{ skill.file_type || 'text' }}</span>
+          <div class="config-items">
+            <div class="config-item">
+              <span class="config-label">工具调用显示</span>
+              <div class="config-options">
+                <label v-for="opt in toolDisplayOptions" :key="opt.value" class="radio-option" :class="{ active: chatSettings.toolCallDisplay === opt.value }">
+                  <input type="radio" name="tool-display" :value="opt.value" :checked="chatSettings.toolCallDisplay === opt.value" @change="onToolDisplayChange(opt.value)">
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
             </div>
-            <p class="skill-card-desc">{{ skill.description || '无描述' }}</p>
-            <div class="skill-card-actions">
-              <button class="skill-card-btn" @click="viewSkill(skill)" title="查看">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-              <button class="skill-card-btn" @click="copySkill(skill)" title="复制到其他智能体">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              </button>
-              <button class="skill-card-btn" @click="downloadSkill(skill)" title="下载">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </button>
-              <button class="skill-card-btn danger" @click="deleteSkill(skill)" title="删除">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
+            <div class="config-item">
+              <span class="config-label">最大执行轮数</span>
+              <span class="config-desc">单次响应的最大 API 调用轮数，到达后自动停止</span>
+              <div class="config-options">
+                <label v-for="opt in roundOptions" :key="opt.value" class="radio-option" :class="{ active: hubSettings.agent_max_rounds === opt.value }">
+                  <input type="radio" name="rounds" :value="opt.value" :checked="hubSettings.agent_max_rounds === opt.value" @change="onRoundsChange(opt.value)">
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-section config-panel">
+          <div class="section-title-row">
+            <h3>🧠 自主进化</h3>
+            <div class="toggle" :class="{ on: hubSettings.self_improve_enabled === '1' }" @click="toggleSelfImprove"></div>
+          </div>
+          <div class="config-items" v-if="hubSettings.self_improve_enabled === '1'">
+            <div class="config-item">
+              <span class="config-label">触发阈值</span>
+              <span class="config-desc">工具调用次数达到此值后触发学习分析</span>
+              <div class="config-options">
+                <label v-for="opt in thresholdOptions" :key="opt.value" class="radio-option" :class="{ active: hubSettings.self_improve_threshold === opt.value }">
+                  <input type="radio" name="threshold" :value="opt.value" :checked="hubSettings.self_improve_threshold === opt.value" @change="onThresholdChange(opt.value)">
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
+            </div>
+            <div class="config-item">
+              <span class="config-label">学习路径</span>
+              <span class="config-desc">智能体学到的技能保存位置（未单独设置时使用此全局配置）</span>
+              <div class="config-options">
+                <label v-for="opt in learnPathOptions" :key="opt.value" class="radio-option" :class="{ active: hubSettings.self_improve_path === opt.value }">
+                  <input type="radio" name="learn-path" :value="opt.value" :checked="hubSettings.self_improve_path === opt.value" @change="onLearnPathChange(opt.value)">
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- Skills tab -->
+      <div v-show="activeTab === 'skills'" class="tab-panel">
+        <div class="admin-section">
+          <div class="section-title-row">
+            <h3>🛠 全局技能库</h3>
+            <span class="badge">{{ allSkills.length }}</span>
+            <div class="section-actions">
+              <button class="link-btn" @click="showCreateSkill = true">+ 创建</button>
+              <button class="link-btn" @click="triggerUpload">📁 上传</button>
+              <input ref="skillFileInput" type="file" accept=".md,.txt,.json,.yaml,.yml" style="display:none" @change="onSkillFileUpload" multiple />
+            </div>
+          </div>
+
+          <div v-if="allSkills.length === 0" class="empty-state">
+            <p>暂无技能，点击上方按钮创建或上传</p>
+          </div>
+
+          <div v-for="group in skillGroups" :key="group.agentId" class="skill-group">
+            <div class="skill-group-header">
+              <span class="skill-group-name">{{ group.agentName }}</span>
+              <span class="skill-group-count">{{ group.skills.length }} 个技能</span>
+            </div>
+            <div class="skill-grid">
+              <div v-for="skill in group.skills" :key="skill.id" class="skill-card">
+                <div class="skill-card-head">
+                  <span class="skill-card-name">{{ skill.name }}</span>
+                  <span class="skill-card-type">{{ skill.file_type || 'text' }}</span>
+                </div>
+                <p class="skill-card-desc">{{ skill.description || '无描述' }}</p>
+                <div class="skill-card-actions">
+                  <button class="skill-card-btn" @click="viewSkill(skill)" title="查看">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                  <button class="skill-card-btn" @click="copySkill(skill)" title="复制到其他智能体">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                  <button class="skill-card-btn" @click="downloadSkill(skill)" title="下载">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                  <button class="skill-card-btn danger" @click="deleteSkill(skill)" title="删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
-    <!-- View skill modal -->
+    <!-- Modals (unchanged) -->
     <Teleport to="body">
       <div v-if="viewingSkill" class="skill-view-overlay" @click.self="viewingSkill = null">
         <div class="skill-view-modal">
@@ -196,6 +209,7 @@ const viewingSkill = ref(null)
 const copyingSkill = ref(null)
 const showCreateSkill = ref(false)
 const skillFileInput = ref(null)
+const activeTab = ref('config')
 const createForm = reactive({ name: '', description: '', content: '', agent_id: '' })
 const hubSettings = reactive({
   agent_max_rounds: '50',
@@ -360,19 +374,62 @@ onMounted(() => {
 
 <style scoped>
 .admin-center {
-  padding: 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 .page-header {
-  margin-bottom: 24px;
+  padding: 16px 20px 0;
 }
 .page-header h2 {
   margin: 0;
   font-size: 20px;
   font-weight: 700;
 }
-.page-subtitle {
-  font-size: 13px;
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  position: relative;
+  margin: 12px 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tab-item {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.2s;
+  user-select: none;
+}
+.tab-item.active {
+  color: var(--accent, #2d6a4f);
+  font-weight: 600;
+}
+.tab-indicator {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 50%;
+  height: 2px;
+  background: var(--accent, #2d6a4f);
+  border-radius: 1px;
+  transition: transform 0.25s ease;
+}
+
+/* Tab content */
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tab-panel {
+  padding: 16px 20px;
 }
 
 .admin-section {
