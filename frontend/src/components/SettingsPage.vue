@@ -61,7 +61,7 @@
         <div class="setting-item" style="cursor:default">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           <span class="setting-label">Myna</span>
-          <span class="setting-value">v{{ updateInfo.currentVersion || '0.3.7' }}</span>
+          <span class="setting-value">{{ (updateInfo.currentVersion || 'v0.3.7').replace(/^(?!v)/, 'v') }}</span>
           <span v-if="updateInfo.available" class="update-dot"></span>
         </div>
         <div v-if="updateInfo.available && updateInfo.isDocker" class="setting-item update-item" @click="handleUpdate" style="cursor:pointer">

@@ -846,11 +846,14 @@ async function onPaste(e) {
   if (!files.length) return
   // Prevent default paste of image as text
   e.preventDefault()
+  const token = localStorage.getItem('myna_token')
   for (const f of files) {
     const fd = new FormData()
     fd.append('file', f, f.name || `paste-${Date.now()}.${f.type.split('/')[1] || 'png'}`)
     try {
-      const r = await fetch('/admin/upload', { method: 'POST', body: fd })
+      const headers = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const r = await fetch('/admin/upload', { method: 'POST', body: fd, headers })
       const data = await r.json()
       if (data.ok) {
         attachments.value.push({ url: data.url, type: data.type, name: data.name, size: data.size })
@@ -865,11 +868,14 @@ async function onPaste(e) {
 
 async function onFiles(e) {
   const files = Array.from(e.target.files || [])
+  const token = localStorage.getItem('myna_token')
   for (const f of files) {
     const fd = new FormData()
     fd.append('file', f)
     try {
-      const r = await fetch('/admin/upload', { method: 'POST', body: fd })
+      const headers = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const r = await fetch('/admin/upload', { method: 'POST', body: fd, headers })
       const data = await r.json()
       if (data.ok) {
         attachments.value.push({ url: data.url, type: data.type, name: data.name, size: data.size })
