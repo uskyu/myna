@@ -290,6 +290,8 @@ async function fetchModels() {
     // Fetch model list from provider
     const payload = { base_url: form.base_url }
     if (form.api_key) payload.api_key = form.api_key
+    // For existing configs, pass model_config_id so backend can use stored key
+    if (form.id) payload.model_config_id = form.id
     const data = await api('POST', '/admin/config/models', payload)
     if (!data.ok) {
       fetchError.value = data.error || '获取失败'

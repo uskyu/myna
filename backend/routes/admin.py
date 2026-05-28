@@ -307,6 +307,48 @@ _model_metadata_cache = None
 _model_metadata_time = 0
 
 
+@router.post("/config/models")
+async def fetch_provider_models(request: Request):
+    """Fetch available models from a provider's /models endpoint."""
+    import httpx
+    body = await request.json()
+    base_url = body.get("base_url", "").rstrip("/")
+    api_key_val = body.get("api_key", "")
+
+    # If no api_key provided but model_config_id given, fetch from DB
+    if not api_key_val and body.get("model_config_id"):
+        db = get_db(request)
+        config = db.get_model_config(body["model_config_id"])
+        if config:
+            api_key_val = config.get("api_key", "")
+            if not base_url:
+                base_url = config.get("base_url", "").rstrip("/")
+
+    if not base_url or not api_key_val:
+        return JSONResponse({"ok": False, "error": "需要 base_url 和 api_key"}, status_code=400)
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                base_url + "/models",
+                headers={"Authorization": f"Bearer {api_key_val}"}
+            )
+            if resp.status_code != 200:
+                return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+            data = resp.json()
+            # OpenAI format: { data: [{id: "model-name", ...}, ...] }
+            models_list = data.get("data", [])
+            # Normalize to [{id: "..."}]
+            result = [{"id": m["id"]} for m in models_list if m.get("id")]
+            # Sort alphabetically
+            result.sort(key=lambda x: x["id"])
+            return {"ok": True, "result": result}
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "连接超时（20秒）"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.post("/models/test")
 async def test_model_connection(request: Request):
     """Test a model connection by sending a simple prompt."""
