@@ -306,6 +306,86 @@ async def delete_model(model_id: str, request: Request):
 _model_metadata_cache = None
 _model_metadata_time = 0
 
+
+@router.post("/models/test")
+async def test_model_connection(request: Request):
+    """Test a model connection by sending a simple prompt."""
+    import httpx
+    body = await request.json()
+    base_url = body.get("base_url", "").rstrip("/")
+    api_key_val = body.get("api_key", "")
+    model = body.get("model", "gpt-4o-mini")
+    api_mode = body.get("api_mode", "chat_completions")
+
+    # If no api_key provided but model_config_id given, fetch from DB
+    if not api_key_val and body.get("model_config_id"):
+        db = get_db(request)
+        config = db.get_model_config(body["model_config_id"])
+        if config:
+            api_key_val = config["api_key"]
+            if not base_url:
+                base_url = config["base_url"].rstrip("/")
+
+    if not base_url or not api_key_val:
+        return JSONResponse({"ok": False, "error": "需要 base_url 和 api_key"}, status_code=400)
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            if api_mode == "anthropic_messages":
+                # Anthropic Messages API format
+                url = base_url + "/messages"
+                resp = await client.post(url, json={
+                    "model": model,
+                    "max_tokens": 50,
+                    "messages": [{"role": "user", "content": "Say hi in 5 words"}]
+                }, headers={
+                    "x-api-key": api_key_val,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                })
+            elif api_mode == "responses":
+                # OpenAI Responses API format
+                url = base_url + "/responses"
+                resp = await client.post(url, json={
+                    "model": model,
+                    "input": "Say hi in 5 words",
+                }, headers={
+                    "Authorization": f"Bearer {api_key_val}",
+                    "Content-Type": "application/json",
+                })
+            else:
+                # Chat Completions (default)
+                url = base_url + "/chat/completions"
+                resp = await client.post(url, json={
+                    "model": model,
+                    "max_tokens": 50,
+                    "messages": [{"role": "user", "content": "Say hi in 5 words"}]
+                }, headers={
+                    "Authorization": f"Bearer {api_key_val}",
+                    "Content-Type": "application/json",
+                })
+
+            if resp.status_code != 200:
+                error_text = resp.text[:200]
+                return {"ok": False, "error": f"HTTP {resp.status_code}: {error_text}"}
+
+            data = resp.json()
+            # Extract reply based on format
+            reply = ""
+            if api_mode == "anthropic_messages":
+                reply = data.get("content", [{}])[0].get("text", "")
+            elif api_mode == "responses":
+                reply = data.get("output_text", "") or str(data.get("output", ""))[:100]
+            else:
+                reply = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            return {"ok": True, "result": {"reply": reply, "model": model, "api_mode": api_mode}}
+
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "连接超时（30秒）"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 @router.get("/models/metadata")
 async def get_model_metadata(request: Request):
     import time

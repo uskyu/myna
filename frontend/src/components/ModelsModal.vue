@@ -131,9 +131,29 @@
           <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" :style="{ transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0)' }"><path d="M9 18l6-6-6-6"/></svg>
             高级选项
-            <span v-if="!showAdvanced" class="muted">(温度、Token、默认配置)</span>
+            <span v-if="!showAdvanced" class="muted">(接口格式、温度、默认配置)</span>
           </button>
           <div v-if="showAdvanced" class="advanced-body">
+            <div class="field">
+              <label>接口格式 (API Mode)</label>
+              <div class="api-mode-options">
+                <label class="radio-option" :class="{ active: form.api_mode === 'chat_completions' }">
+                  <input type="radio" name="api-mode" value="chat_completions" v-model="form.api_mode">
+                  <span>Chat Completions</span>
+                  <span class="mode-hint">OpenAI 兼容 (默认)</span>
+                </label>
+                <label class="radio-option" :class="{ active: form.api_mode === 'responses' }">
+                  <input type="radio" name="api-mode" value="responses" v-model="form.api_mode">
+                  <span>Responses API</span>
+                  <span class="mode-hint">GPT-5 / Codex</span>
+                </label>
+                <label class="radio-option" :class="{ active: form.api_mode === 'anthropic_messages' }">
+                  <input type="radio" name="api-mode" value="anthropic_messages" v-model="form.api_mode">
+                  <span>Anthropic Messages</span>
+                  <span class="mode-hint">Claude 系列</span>
+                </label>
+              </div>
+            </div>
             <div class="field-row">
               <div class="field" style="flex:1">
                 <label>Temperature</label>
@@ -148,6 +168,18 @@
               <button type="button" class="toggle" :class="{ on: form.is_default }" @click="form.is_default = !form.is_default"></button>
               <label style="margin:0;cursor:pointer" @click="form.is_default = !form.is_default">设为默认配置</label>
             </div>
+          </div>
+        </div>
+
+        <!-- Test Connection -->
+        <div class="test-section">
+          <button type="button" class="btn btn-secondary test-btn" @click="testConnection" :disabled="testing || !form.base_url || (!form.api_key && !form.id)">
+            <svg v-if="!testing" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <svg v-else class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            {{ testing ? '测试中...' : '测试连接' }}
+          </button>
+          <div v-if="testResult" class="test-result" :class="testResult.ok ? 'test-ok' : 'test-fail'">
+            {{ testResult.message }}
           </div>
         </div>
 
@@ -185,7 +217,10 @@ const form = reactive({
   temperature: 0.7,
   max_tokens: 4096,
   is_default: false,
+  api_mode: 'chat_completions',
 })
+const testing = ref(false)
+const testResult = ref(null)
 
 async function load() {
   const data = await api('GET', '/admin/models')
@@ -202,16 +237,26 @@ function startNew() {
   Object.assign(form, {
     id: null, name: '', base_url: '', api_key: '', model: '',
     temperature: 0.7, max_tokens: 4096, is_default: models.value.length === 0,
+    api_mode: 'chat_completions',
   })
   fetchedModels.value = []
   fetchError.value = ''
   modelFilter.value = ''
   mode.value = 'fetch'
   showAdvanced.value = false
+  testResult.value = null
   editingModel.value = true
 }
 
 function startEdit(m) {
+  // Parse api_mode from params_json if stored
+  let apiMode = 'chat_completions'
+  if (m.params_json) {
+    try {
+      const p = typeof m.params_json === 'string' ? JSON.parse(m.params_json) : m.params_json
+      if (p.api_mode) apiMode = p.api_mode
+    } catch(e) {}
+  }
   Object.assign(form, {
     id: m.id,
     name: m.name || '',
@@ -221,12 +266,14 @@ function startEdit(m) {
     temperature: m.temperature ?? 0.7,
     max_tokens: m.max_tokens ?? 4096,
     is_default: !!m.is_default,
+    api_mode: apiMode,
   })
   fetchedModels.value = []
   fetchError.value = ''
   modelFilter.value = ''
-  mode.value = 'fetch'   // default to fetch on edit too — user can refetch list
+  mode.value = 'fetch'
   showAdvanced.value = false
+  testResult.value = null
   editingModel.value = true
 }
 
@@ -312,6 +359,7 @@ function formatCtx(n) {
 
 async function saveModel() {
   if (!canSave.value) return
+  const params = { api_mode: form.api_mode }
   const payload = {
     name: form.name.trim(),
     provider: 'openai',
@@ -320,6 +368,7 @@ async function saveModel() {
     temperature: form.temperature,
     max_tokens: form.max_tokens,
     is_default: form.is_default ? 1 : 0,
+    params_json: JSON.stringify(params),
   }
   if (form.api_key) payload.api_key = form.api_key
 
@@ -346,6 +395,30 @@ async function remove(m) {
     emit('changed')
   } else {
     alert('删除失败：' + (res.error || '未知错误'))
+  }
+}
+
+async function testConnection() {
+  testing.value = true
+  testResult.value = null
+  try {
+    const payload = {
+      base_url: form.base_url.trim(),
+      model: form.model.trim() || 'gpt-4o-mini',
+      api_mode: form.api_mode,
+    }
+    if (form.api_key) payload.api_key = form.api_key
+    if (form.id) payload.model_config_id = form.id
+    const res = await api('POST', '/admin/models/test', payload)
+    if (res.ok) {
+      testResult.value = { ok: true, message: `✅ 连接成功 — ${res.result?.reply?.slice(0, 60) || '模型响应正常'}` }
+    } else {
+      testResult.value = { ok: false, message: `❌ ${res.error || '连接失败'}` }
+    }
+  } catch(e) {
+    testResult.value = { ok: false, message: `❌ ${e.message}` }
+  } finally {
+    testing.value = false
   }
 }
 
@@ -551,4 +624,61 @@ onMounted(load)
 }
 .btn-row .btn { flex: 1; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* API Mode options */
+.api-mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.api-mode-options .radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.api-mode-options .radio-option.active {
+  border-color: var(--accent);
+  background: rgba(45, 106, 79, 0.06);
+}
+.api-mode-options .radio-option input { margin: 0; }
+.api-mode-options .radio-option span:nth-child(2) { font-size: 13px; font-weight: 600; }
+.mode-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* Test section */
+.test-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.test-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.test-result {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.test-ok {
+  background: rgba(45, 106, 79, 0.1);
+  color: #2d6a4f;
+}
+.test-fail {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
 </style>

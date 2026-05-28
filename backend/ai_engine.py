@@ -125,6 +125,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
         model = model_config["model"]
         max_tokens = params.get("max_tokens") or model_config.get("max_tokens") or 4096
         temperature = params.get("temperature") if params.get("temperature") is not None else model_config.get("temperature", 0.7)
+        api_mode = params.get("api_mode", "chat_completions")
     else:
         hermes_config = get_hermes_config()
         if not hermes_config or not hermes_config["api_key"]:
@@ -134,6 +135,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
         model = hermes_config["model"]
         max_tokens = 4096
         temperature = 0.7
+        api_mode = "chat_completions"
 
     # Use Hermes Agent engine for full capabilities (tools, memory, skills)
     if HERMES_AVAILABLE:
@@ -168,7 +170,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                 agent_instance = AIAgent(
                     base_url=base_url,
                     api_key=api_key,
-                    api_mode="chat_completions",
+                    api_mode=api_mode,
                     model=model,
                     max_iterations=15,
                     quiet_mode=True,
