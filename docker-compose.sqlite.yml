@@ -1,0 +1,15 @@
+services:
+  myna:
+    image: ghcr.io/uskyu/myna:latest
+    container_name: myna-app
+    restart: unless-stopped
+    ports:
+      - "3456:3456"
+    environment:
+      - PORT=3456
+      - DB_TYPE=sqlite
+    volumes:
+      - app_data:/app/db
+
+volumes:
+  app_data:
