@@ -23,7 +23,7 @@ from ws_manager import WSManager
 from routes.admin import router as admin_router
 from routes.gateway import router as gateway_router
 from routes.upload import router as upload_router
-from routes.auth import router as auth_router, is_authenticated
+from routes.auth import router as auth_router, is_authenticated, ensure_password_initialized
 from workflow_engine import WorkflowRunner, WorkflowScheduler
 
 # Globals
@@ -42,6 +42,8 @@ async def lifespan(app: FastAPI):
     data_dir.mkdir(exist_ok=True)
     
     db = get_database(str(data_dir / "myna.sqlite"))
+    # Initialize password hash at startup to prevent race condition
+    ensure_password_initialized(db)
     ws_manager = WSManager()
     workflow_runner = WorkflowRunner(db, ws_manager)
     workflow_scheduler = WorkflowScheduler(db, workflow_runner)
@@ -103,11 +105,22 @@ app.include_router(upload_router)
 
 
 # Auth middleware - protect all routes except /auth/*, /health, static files, /ws
-from starlette.middleware.base import BaseHTTPMiddleware
+# Using pure ASGI middleware instead of BaseHTTPMiddleware to avoid response truncation bugs
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import JSONResponse as StarletteJSONResponse
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        path = request.url.path
+
+class AuthMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] not in ("http",):
+            await self.app(scope, receive, send)
+            return
+
+        path = scope["path"]
         # Skip auth for: login/check endpoints, health, static assets, websocket upgrade
         if (path.startswith("/auth/") or
             path == "/health" or
@@ -116,16 +129,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
             path.endswith(".ico") or path.endswith(".png") or
             path.endswith(".svg") or path.endswith(".woff") or path.endswith(".woff2") or
             path == "/" or path == "/index.html"):
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
         # WebSocket auth is handled in the endpoint itself
         if path == "/ws":
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
         # Check auth for API routes
         if path.startswith("/admin/") or path.startswith("/upload"):
+            request = StarletteRequest(scope, receive)
             if not is_authenticated(request):
-                from fastapi.responses import JSONResponse
-                return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
-        return await call_next(request)
+                response = StarletteJSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 app.add_middleware(AuthMiddleware)
 

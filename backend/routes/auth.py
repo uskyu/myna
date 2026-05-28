@@ -8,6 +8,7 @@ import os
 import hashlib
 import secrets
 import time
+import threading
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -17,6 +18,7 @@ router = APIRouter()
 # Sessions expire after 7 days
 _sessions: dict[str, float] = {}
 SESSION_TTL = 7 * 24 * 3600  # 7 days
+_auth_lock = threading.Lock()
 
 DEFAULT_PASSWORD = "admin123"
 
@@ -68,6 +70,13 @@ def get_password_hash(db) -> str:
     return stored
 
 
+def ensure_password_initialized(db):
+    """Call once at startup to ensure password hash exists in DB.
+    Prevents race condition where concurrent login requests both see
+    no stored hash and write different salted hashes."""
+    get_password_hash(db)
+
+
 def is_authenticated(request: Request) -> bool:
     """Check if request has valid auth session."""
     # Check Authorization header (Bearer token)
@@ -90,11 +99,12 @@ async def login(request: Request):
     body = await request.json()
     password = body.get("password", "")
 
-    stored_hash = get_password_hash(db)
-    if not _verify_password(password, stored_hash):
-        return JSONResponse({"ok": False, "error": "密码错误"}, status_code=401)
+    with _auth_lock:
+        stored_hash = get_password_hash(db)
+        if not _verify_password(password, stored_hash):
+            return JSONResponse({"ok": False, "error": "密码错误"}, status_code=401)
 
-    token = _create_session()
+        token = _create_session()
     return {"ok": True, "token": token}
 
 

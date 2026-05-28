@@ -33,7 +33,15 @@ export async function api(method, path, body) {
       clearAuth()
       return { ok: false, error: '未登录' }
     }
-    return await r.json()
+    const text = await r.text()
+    if (!text) {
+      return { ok: false, error: '服务器返回空响应，请重试' }
+    }
+    try {
+      return JSON.parse(text)
+    } catch (e) {
+      return { ok: false, error: '响应解析失败，请重试' }
+    }
   } catch (e) {
     return { ok: false, error: e.message }
   }
