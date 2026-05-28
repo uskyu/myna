@@ -275,6 +275,11 @@ async def health():
     }
 
 
+# Serve uploaded files
+uploads_dir = Path(__file__).parent.parent / "data" / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
 # Serve frontend static files
 frontend_dist = Path(__file__).parent.parent / "src" / "web" / "public"
 if frontend_dist.exists():

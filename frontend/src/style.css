@@ -799,7 +799,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 }
 .msg .msg-text strong { font-weight: 700; }
 .msg .msg-text a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.msg-group.self .msg .msg-text a { color: #bbf7d0; text-decoration: underline; text-underline-offset: 2px; }
+.msg-group.self .msg .msg-text a { color: #ffffff; text-decoration: underline; text-underline-offset: 2px; opacity: 0.95; }
 .msg .msg-text .at-mention {
   color: var(--accent);
   font-weight: 600;

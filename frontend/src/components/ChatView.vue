@@ -435,6 +435,30 @@ watch(mentionCandidates, (list) => {
   if (mentionIndex.value >= list.length) mentionIndex.value = Math.max(0, list.length - 1)
 })
 
+// Time formatting — convert UTC/ISO to local timezone
+function formatMsgTime(ts) {
+  if (!ts) return ''
+  try {
+    // Backend stores UTC without Z suffix, format: "2026-05-28 07:04:42"
+    const normalized = ts.replace(' ', 'T') + (ts.includes('Z') || ts.includes('+') ? '' : 'Z')
+    const d = new Date(normalized)
+    if (isNaN(d.getTime())) return ts.slice(11, 16)
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  } catch { return ts.slice(11, 16) }
+}
+function formatMsgDate(ts) {
+  if (!ts) return ''
+  try {
+    const normalized = ts.replace(' ', 'T') + (ts.includes('Z') || ts.includes('+') ? '' : 'Z')
+    const d = new Date(normalized)
+    if (isNaN(d.getTime())) return ts.slice(0, 10)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  } catch { return ts.slice(0, 10) }
+}
+
 function renderMd(text) {
   if (!text) return ''
   try {
@@ -505,8 +529,8 @@ const messageGroups = computed(() => {
       sender_name: m.sender_name,
       text: m.text,
       rendered: renderMd(m.text),
-      time: (m.created_at || '').slice(11, 16),
-      date: (m.created_at || '').slice(0, 10),
+      time: formatMsgTime(m.created_at),
+      date: formatMsgDate(m.created_at),
       self,
       showName: !self && (props.type === 'group' || !self),
       toolCalls,
