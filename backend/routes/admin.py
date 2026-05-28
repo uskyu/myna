@@ -579,6 +579,14 @@ async def delete_skill(skill_id: str, request: Request):
     return {"ok": True}
 
 
+# === Engine Status ===
+
+@router.get("/engine/status")
+async def engine_status(request: Request):
+    from ai_engine import get_engine_status
+    return {"ok": True, "result": get_engine_status()}
+
+
 @router.post("/skills/{skill_id}/copy")
 async def copy_skill(skill_id: str, request: Request):
     db = get_db(request)

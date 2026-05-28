@@ -127,6 +127,46 @@
         </div>
       </div>
 
+      <!-- Hermes Engine Capabilities -->
+      <div class="profile-section">
+        <h4>🚀 Hermes 引擎能力</h4>
+        <div class="hermes-caps-grid">
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">🔧</span>
+            <span class="cap-name">工具调用</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">💾</span>
+            <span class="cap-name">持久记忆</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">📚</span>
+            <span class="cap-name">技能学习</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">🌐</span>
+            <span class="cap-name">网页浏览</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">💻</span>
+            <span class="cap-name">终端命令</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">📡</span>
+            <span class="cap-name">HTTP请求</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">🤝</span>
+            <span class="cap-name">多智能体协作</span>
+          </div>
+          <div class="hermes-cap-item active">
+            <span class="cap-icon">⏰</span>
+            <span class="cap-name">工作流调度</span>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px">由 Hermes Agent 引擎驱动，每个智能体拥有独立的记忆和技能空间</div>
+      </div>
+
       <div style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border)">
         <button class="btn btn-danger" @click="$emit('delete', agent.id)" style="width:100%">删除智能体</button>
       </div>
@@ -704,5 +744,36 @@ onMounted(() => {
   outline: none;
   border-color: var(--accent);
   box-shadow: var(--shadow-glow);
+}
+
+/* Hermes capabilities grid */
+.hermes-caps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.hermes-cap-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  opacity: 0.4;
+}
+.hermes-cap-item.active {
+  opacity: 1;
+  border-color: var(--accent);
+  background: rgba(45, 106, 79, 0.06);
+}
+.cap-icon {
+  font-size: 14px;
+}
+.cap-name {
+  font-weight: 500;
+  color: var(--text);
 }
 </style>

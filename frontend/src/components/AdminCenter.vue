@@ -2,7 +2,29 @@
   <div class="page admin-center">
     <div class="page-header">
       <h2>管理中心</h2>
-      <span class="page-subtitle">技能库 · 智能体管理</span>
+      <span class="page-subtitle">引擎状态 · 技能库 · 智能体管理</span>
+    </div>
+
+    <!-- Engine Status Panel -->
+    <div class="admin-section engine-panel">
+      <div class="section-title-row">
+        <h3>⚡ 引擎状态</h3>
+        <span class="badge" :class="engineStatus.hermes_available ? 'badge-green' : 'badge-amber'">
+          {{ engineStatus.hermes_available ? 'Hermes Agent' : 'Direct API' }}
+        </span>
+      </div>
+      <div class="engine-info" v-if="engineStatus.engine">
+        <div class="engine-row">
+          <span class="engine-label">引擎</span>
+          <span class="engine-value">{{ engineStatus.engine }}</span>
+        </div>
+        <div class="engine-row">
+          <span class="engine-label">能力</span>
+          <div class="engine-caps">
+            <span v-for="cap in engineStatus.capabilities" :key="cap" class="cap-tag">{{ capLabels[cap] || cap }}</span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Skills overview -->
@@ -139,6 +161,18 @@ const copyingSkill = ref(null)
 const showCreateSkill = ref(false)
 const skillFileInput = ref(null)
 const createForm = reactive({ name: '', description: '', content: '', agent_id: '' })
+const engineStatus = ref({})
+const capLabels = {
+  tool_use: '工具调用',
+  memory: '持久记忆',
+  skills: '技能学习',
+  delegation: '子代理',
+  cron: '定时任务',
+  web_browse: '网页浏览',
+  file_ops: '文件操作',
+  terminal: '终端命令',
+  http_requests: 'HTTP请求',
+}
 
 const agents = computed(() => store.agents.filter(a => a.id !== 'user' && a.id !== 'system'))
 
@@ -229,7 +263,10 @@ async function onSkillFileUpload(e) {
   e.target.value = ''
 }
 
-onMounted(loadAllSkills)
+onMounted(() => {
+  loadAllSkills()
+  api('GET', '/admin/engine/status').then(d => { if (d.ok) engineStatus.value = d.result })
+})
 </script>
 
 <style scoped>
@@ -251,6 +288,54 @@ onMounted(loadAllSkills)
 
 .admin-section {
   margin-bottom: 32px;
+}
+
+/* Engine Panel */
+.engine-panel {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+}
+.engine-info {
+  margin-top: 12px;
+}
+.engine-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.engine-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 40px;
+}
+.engine-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.engine-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cap-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent-bg, rgba(45, 106, 79, 0.1));
+  color: var(--accent);
+  font-weight: 500;
+}
+.badge-green {
+  background: rgba(45, 106, 79, 0.15) !important;
+  color: #2d6a4f !important;
+}
+.badge-amber {
+  background: rgba(217, 119, 6, 0.15) !important;
+  color: #d97706 !important;
 }
 .section-title-row {
   display: flex;

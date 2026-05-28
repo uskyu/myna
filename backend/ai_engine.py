@@ -10,6 +10,7 @@ import asyncio
 import traceback
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 # Hermes Agent imports
 HERMES_PATH = Path("/root/hermes")
@@ -22,27 +23,30 @@ except ImportError:
     HERMES_AVAILABLE = False
     print("[AI] WARNING: Hermes Agent not importable, falling back to direct API calls")
 
+# Thread pool for running sync Hermes Agent calls
+_executor = ThreadPoolExecutor(max_workers=4)
+
 
 def get_hermes_config():
     """Read Hermes config for API credentials."""
     import yaml
     config_path = Path.home() / ".hermes" / "config.yaml"
     env_path = Path.home() / ".hermes" / ".env"
-    
+
     try:
         config = yaml.safe_load(config_path.read_text())
         provider = config.get("model", {}).get("provider", "")
         provider_name = provider.replace("custom:", "")
         provider_config = config.get("providers", {}).get(provider_name, {})
         key_env = provider_config.get("key_env", "")
-        
+
         api_key = ""
         if key_env and env_path.exists():
             for line in env_path.read_text().splitlines():
                 if line.startswith(f"{key_env}="):
-                    api_key = line.split("=", 1)[1].strip().strip("\x27\x22")
+                    api_key = line.split("=", 1)[1].strip().strip("\'" + '"')
                     break
-        
+
         return {
             "model": config.get("model", {}).get("default", "gpt-4o"),
             "base_url": provider_config.get("base_url", "https://api.openai.com/v1"),
@@ -63,31 +67,37 @@ def get_model_config_for_agent(db, agent: dict) -> dict | None:
     return config
 
 
-def build_system_prompt(agent: dict, room_type: str, other_agents: list = None) -> str:
+def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, skills: list = None) -> str:
     """Build system prompt for an agent."""
-    tools_desc = """你有以下能力（由 Hermes Agent 引擎提供）：
-- 执行系统命令（SSH连接、安装软件、管理服务等）
+    tools_desc = """你拥有 Hermes Agent 引擎的完整能力：
+- 执行系统命令（本地/SSH远程）
 - 读写文件、搜索文件
 - 发送HTTP请求、调用API
 - 安装软件包（npm/pip/apt）
 - 持久记忆（跨对话记住信息）
 - 技能学习（从经验中提取可复用流程）
+- 网页浏览和信息提取
 
-需要时主动使用工具获取信息或执行操作。你可以接收服务器地址、密码、API密钥等信息并直接使用它们来完成任务。"""
+需要时主动使用工具。你可以接收服务器地址、密码、API密钥等信息并直接使用。"""
 
     base = agent.get("description", "")
     name = agent.get("name", "Assistant")
-    
+
     if base:
         prompt = f"你是 {name}。{base}\n\n{tools_desc}"
     else:
-        prompt = f"你是 {name}，一个全能智能助手。你直接帮用户完成任务，包括连接服务器、执行命令、管理文件等。\n\n{tools_desc}"
+        prompt = f"你是 {name}，一个全能智能助手。\n\n{tools_desc}"
 
-    prompt += "\n\n回复使用 Markdown 格式，保持简洁专业。直接执行用户的指令，不要推脱或建议用户自己操作。"
+    prompt += "\n\n回复使用 Markdown 格式，保持简洁专业。直接执行用户的指令。"
+
+    # Inject skills
+    if skills:
+        skill_text = "\n".join([f"- {s['name']}: {s.get('content', '')[:200]}" for s in skills[:5]])
+        prompt += f"\n\n[已装载技能]\n{skill_text}"
 
     if room_type == "group" and other_agents:
-        agent_list = "、".join([f"@{a['name']}（{a.get('description') or '通用智能体'}）" for a in other_agents])
-        prompt += f"\n\n[群聊环境] 当前可协作的其他智能体：{agent_list}。如果用户的问题需要其他智能体的专长，可以在回复中 @他们的名字来请求协助。"
+        agent_list = "、".join([f"@{a['name']}（{a.get('description') or '通用智能体'}）" for a in other_agents[:8]])
+        prompt += f"\n\n[群聊环境] 可协作智能体：{agent_list}。需要时在回复中 @他们。"
 
     return prompt
 
@@ -96,7 +106,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                            model_config: dict | None, callbacks: dict) -> str | None:
     """
     Run Hermes AIAgent for a conversation turn.
-    This gives the agent full Hermes capabilities: tools, memory, skills, delegation.
+    Uses callbacks for real-time tool event streaming to UI.
     """
     on_token = callbacks.get("on_token")
     on_tool_call = callbacks.get("on_tool_call")
@@ -125,11 +135,34 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
         max_tokens = 4096
         temperature = 0.7
 
-    # For now, use direct API calls (more reliable for hub context)
-    # Hermes Agent integration will be enabled per-agent via config
-    if False and HERMES_AVAILABLE:
+    if HERMES_AVAILABLE:
         try:
-            # Run Hermes AIAgent in a thread pool to avoid blocking the event loop
+            # Collect events from Hermes callbacks (called from thread)
+            tool_events = []
+            loop = asyncio.get_event_loop()
+
+            def _tool_start(tool_call_id, name, args):
+                summary = _tool_summary(name, args if isinstance(args, dict) else {})
+                tool_events.append({"type": "start", "name": name, "summary": summary, "id": tool_call_id})
+                if on_tool_call:
+                    asyncio.run_coroutine_threadsafe(
+                        on_tool_call({"name": name, "args": args if isinstance(args, dict) else {}, "summary": summary}),
+                        loop
+                    )
+
+            def _tool_complete(tool_call_id, name, args, result):
+                output = str(result)[:200] if result else ""
+                ok = not (output.startswith("Error") or output.startswith("error"))
+                tool_events.append({"type": "complete", "name": name, "ok": ok, "output": output, "id": tool_call_id})
+                if on_tool_result:
+                    asyncio.run_coroutine_threadsafe(
+                        on_tool_result({"name": name, "ok": ok, "output": output}),
+                        loop
+                    )
+
+            def _stream_delta(delta):
+                pass  # We get the full text at the end
+
             def _run_hermes_sync():
                 agent_instance = AIAgent(
                     base_url=base_url,
@@ -140,6 +173,9 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     platform="hermes-hub",
                     skip_context_files=True,
                     skip_memory=False,
+                    tool_start_callback=_tool_start,
+                    tool_complete_callback=_tool_complete,
+                    stream_delta_callback=_stream_delta,
                 )
                 result = agent_instance.run_conversation(
                     user_message=history[-1]["content"] if history else "",
@@ -148,12 +184,11 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                 )
                 return result.get("final_response", "") if isinstance(result, dict) else str(result)
 
-            loop = asyncio.get_event_loop()
-            final_text = await loop.run_in_executor(None, _run_hermes_sync)
-            
+            final_text = await loop.run_in_executor(_executor, _run_hermes_sync)
+
             if final_text and on_token:
                 await on_token(final_text)
-            
+
             return final_text or None
 
         except Exception as e:
@@ -171,89 +206,17 @@ async def direct_api_call(base_url: str, api_key: str, model: str,
                            max_tokens: int, temperature: float, callbacks: dict) -> str | None:
     """Direct OpenAI-compatible API call with tool use loop."""
     import httpx
-    
+
     on_token = callbacks.get("on_token")
     on_tool_call = callbacks.get("on_tool_call")
     on_tool_result = callbacks.get("on_tool_result")
 
     TOOL_DEFINITIONS = [
-        {
-            "type": "function",
-            "function": {
-                "name": "run_command",
-                "description": "Execute a shell command on the server",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "command": {"type": "string", "description": "The command to execute"},
-                        "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30}
-                    },
-                    "required": ["command"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "read_file",
-                "description": "Read file contents",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "File path to read"}
-                    },
-                    "required": ["path"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "write_file",
-                "description": "Write content to a file",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "File path"},
-                        "content": {"type": "string", "description": "Content to write"}
-                    },
-                    "required": ["path", "content"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "http_request",
-                "description": "Send an HTTP request",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
-                        "url": {"type": "string"},
-                        "headers": {"type": "object"},
-                        "body": {"type": "string"}
-                    },
-                    "required": ["method", "url"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "search_files",
-                "description": "Search for files or content in files",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "pattern": {"type": "string", "description": "Search pattern (regex)"},
-                        "path": {"type": "string", "description": "Directory to search in", "default": "."},
-                        "file_glob": {"type": "string", "description": "File pattern filter"}
-                    },
-                    "required": ["pattern"]
-                }
-            }
-        },
+        {"type": "function", "function": {"name": "run_command", "description": "Execute a shell command", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "timeout": {"type": "integer", "default": 30}}, "required": ["command"]}}},
+        {"type": "function", "function": {"name": "read_file", "description": "Read file contents", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+        {"type": "function", "function": {"name": "write_file", "description": "Write content to a file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+        {"type": "function", "function": {"name": "http_request", "description": "Send HTTP request", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]}, "url": {"type": "string"}, "headers": {"type": "object"}, "body": {"type": "string"}}, "required": ["method", "url"]}}},
+        {"type": "function", "function": {"name": "search_files", "description": "Search files by content or name", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "default": "."}, "file_glob": {"type": "string"}}, "required": ["pattern"]}}},
     ]
 
     messages = [{"role": "system", "content": system_prompt}] + history
@@ -261,20 +224,9 @@ async def direct_api_call(base_url: str, api_key: str, model: str,
 
     async with httpx.AsyncClient(timeout=120) as client:
         for round_num in range(8):
-            body = {
-                "model": model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "tools": TOOL_DEFINITIONS,
-                "tool_choice": "auto",
-            }
+            body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "tools": TOOL_DEFINITIONS, "tool_choice": "auto"}
 
-            resp = await client.post(url, json=body, headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            })
-
+            resp = await client.post(url, json=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
             if resp.status_code != 200:
                 print(f"[AI] API error {resp.status_code}: {resp.text[:200]}")
                 return None
@@ -284,13 +236,11 @@ async def direct_api_call(base_url: str, api_key: str, model: str,
             msg = choice.get("message", {})
 
             if not msg.get("tool_calls"):
-                # Final text response
                 text = msg.get("content", "")
                 if text and on_token:
                     await on_token(text)
                 return text or None
 
-            # Process tool calls
             messages.append(msg)
             for tc in msg["tool_calls"]:
                 fn_name = tc["function"]["name"]
@@ -308,25 +258,20 @@ async def direct_api_call(base_url: str, api_key: str, model: str,
                 if on_tool_result:
                     await on_tool_result({"name": fn_name, "ok": result["ok"], "output": result["output"]})
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": result["output"][:4000]
-                })
+                messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result["output"][:4000]})
 
     return None
 
 
 def _tool_summary(name: str, args: dict) -> str:
     if name == "run_command":
-        cmd = args.get("command", "")
-        return cmd[:80]
+        return (args.get("command") or "")[:80]
     elif name == "read_file":
         return args.get("path", "")
     elif name == "write_file":
         return args.get("path", "")
     elif name == "http_request":
-        return f"{args.get('method', 'GET')} {args.get('url', '')[:60]}"
+        return f"{args.get('method', 'GET')} {(args.get('url') or '')[:60]}"
     elif name == "search_files":
         return f"{args.get('pattern', '')} in {args.get('path', '.')}"
     return str(args)[:60]
@@ -335,7 +280,7 @@ def _tool_summary(name: str, args: dict) -> str:
 async def _execute_tool(name: str, args: dict) -> dict:
     """Execute a tool and return result."""
     import subprocess
-    
+
     try:
         if name == "run_command":
             cmd = args.get("command", "")
@@ -343,7 +288,6 @@ async def _execute_tool(name: str, args: dict) -> dict:
             proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
             output = proc.stdout + proc.stderr
             return {"ok": proc.returncode == 0, "output": output[:8000] or "(empty)"}
-
         elif name == "read_file":
             path = args.get("path", "")
             p = Path(path).expanduser()
@@ -351,7 +295,6 @@ async def _execute_tool(name: str, args: dict) -> dict:
                 return {"ok": False, "output": f"File not found: {path}"}
             content = p.read_text(errors="replace")
             return {"ok": True, "output": content[:8000]}
-
         elif name == "write_file":
             path = args.get("path", "")
             content = args.get("content", "")
@@ -359,7 +302,6 @@ async def _execute_tool(name: str, args: dict) -> dict:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content)
             return {"ok": True, "output": f"Written {len(content)} bytes to {path}"}
-
         elif name == "http_request":
             import httpx
             method = args.get("method", "GET")
@@ -369,20 +311,14 @@ async def _execute_tool(name: str, args: dict) -> dict:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.request(method, url, headers=headers, content=body)
                 return {"ok": resp.status_code < 400, "output": f"HTTP {resp.status_code}\n{resp.text[:4000]}"}
-
         elif name == "search_files":
             pattern = args.get("pattern", "")
             path = args.get("path", ".")
-            file_glob = args.get("file_glob", "")
-            cmd = f"grep -rn '{pattern}' {path}"
-            if file_glob:
-                cmd = f"find {path} -name '{file_glob}' -exec grep -ln '{pattern}' {{}} \\;"
+            cmd = f"grep -rn '{pattern}' {path} 2>/dev/null | head -30"
             proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
             return {"ok": True, "output": proc.stdout[:4000] or "(no matches)"}
-
         else:
             return {"ok": False, "output": f"Unknown tool: {name}"}
-
     except subprocess.TimeoutExpired:
         return {"ok": False, "output": "Command timed out"}
     except Exception as e:
@@ -397,8 +333,7 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
     Core orchestration logic.
     """
     mentions = mentions or []
-    
-    # Chain depth limit
+
     room_settings = db.get_room_settings(room_id)
     max_chain = room_settings.get("max_chain_depth", 0)
     if max_chain > 0 and chain_depth >= max_chain:
@@ -411,7 +346,6 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         responding_agents = [m for m in members if m["id"] not in (sender_id, "system", "user")]
     elif mentions:
         responding_agents = [m for m in members if m["id"] in mentions]
-        # Auto-add mentioned agents not in room
         if len(responding_agents) < len(mentions):
             all_agents = db.list_agents()
             for mid in mentions:
@@ -427,16 +361,11 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
     if not responding_agents:
         return
 
-    # Filter offline
     responding_agents = [a for a in responding_agents if a.get("status") != "offline"]
     if not responding_agents:
         return
 
-    # Get recent messages for context
-    if thread_id:
-        recent_messages = db.get_thread_messages(thread_id, 20)
-    else:
-        recent_messages = db.get_room_messages(room_id, 20)
+    recent_messages = db.get_thread_messages(thread_id, 20) if thread_id else db.get_room_messages(room_id, 20)
 
     for agent in responding_agents:
         full_agent = db.get_agent_by_id(agent["id"])
@@ -452,18 +381,19 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
                 content = f"[{m['sender_name']}]: {content}"
             history.append({"role": role, "content": content})
 
+        # Load agent skills for context
+        agent_skills = db.get_agent_skills(agent["id"])
+
         # Build system prompt
         all_agents = db.list_agents()
         other_agents = [a for a in all_agents if a["id"] != agent["id"] and a["id"] != "user" and a.get("status") == "online"]
-        system_prompt = build_system_prompt(full_agent, room_type, other_agents if room_type == "group" else None)
+        system_prompt = build_system_prompt(full_agent, room_type,
+                                            other_agents if room_type == "group" else None,
+                                            agent_skills)
 
-        # Get model config
         model_config = get_model_config_for_agent(db, full_agent)
-
-        # Stream ID for UI
         stream_id = f"stream_{int(datetime.now().timestamp() * 1000)}_{agent['id'][:8]}"
 
-        # Notify UI: stream started
         await ws_manager.notify_ui({
             "type": "stream_start",
             "stream_id": stream_id,
@@ -475,27 +405,12 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         collected_tool_calls = []
 
-        # Callbacks
         async def on_token(chunk):
-            await ws_manager.notify_ui({
-                "type": "stream_token",
-                "stream_id": stream_id,
-                "room_id": room_id,
-                "agent_id": agent["id"],
-                "chunk": chunk,
-            })
+            await ws_manager.notify_ui({"type": "stream_token", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "chunk": chunk})
 
         async def on_tool_call(info):
             collected_tool_calls.append({"name": info["name"], "summary": info["summary"], "status": "running", "result": None})
-            await ws_manager.notify_ui({
-                "type": "tool_call",
-                "stream_id": stream_id,
-                "room_id": room_id,
-                "agent_id": agent["id"],
-                "tool": info["name"],
-                "args_summary": info["summary"],
-                "timestamp": int(datetime.now().timestamp() * 1000),
-            })
+            await ws_manager.notify_ui({"type": "tool_call", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "tool": info["name"], "args_summary": info["summary"], "timestamp": int(datetime.now().timestamp() * 1000)})
 
         async def on_tool_result(info):
             for tc in reversed(collected_tool_calls):
@@ -503,20 +418,10 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
                     tc["status"] = "done" if info["ok"] else "error"
                     tc["result"] = (info.get("output") or "")[:200]
                     break
-            await ws_manager.notify_ui({
-                "type": "tool_result",
-                "stream_id": stream_id,
-                "room_id": room_id,
-                "agent_id": agent["id"],
-                "tool": info["name"],
-                "ok": info["ok"],
-                "output_preview": (info.get("output") or "")[:200],
-                "timestamp": int(datetime.now().timestamp() * 1000),
-            })
+            await ws_manager.notify_ui({"type": "tool_result", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "tool": info["name"], "ok": info["ok"], "output_preview": (info.get("output") or "")[:200], "timestamp": int(datetime.now().timestamp() * 1000)})
 
         callbacks = {"on_token": on_token, "on_tool_call": on_tool_call, "on_tool_result": on_tool_result}
 
-        # Run AI
         try:
             reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks)
         except Exception as e:
@@ -524,102 +429,55 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
             traceback.print_exc()
             reply = None
 
-        # Notify UI: stream ended
-        await ws_manager.notify_ui({
-            "type": "stream_end",
-            "stream_id": stream_id,
-            "room_id": room_id,
-            "agent_id": agent["id"],
-        })
+        await ws_manager.notify_ui({"type": "stream_end", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"]})
 
         if not reply:
             continue
 
-        # Build metadata
         metadata = {"tool_calls": collected_tool_calls} if collected_tool_calls else None
 
-        # Parse @mentions in reply
         reply_mentions = []
         for m in re.finditer(r"@(\S+)", reply):
             mentioned = next((a for a in all_agents if a["name"] == m.group(1) and a["id"] != agent["id"]), None)
             if mentioned:
                 reply_mentions.append(mentioned["id"])
 
-        # Save message
-        message = db.create_message(room_id, agent["id"], reply, "markdown", None,
-                                     reply_mentions, metadata, thread_id)
+        message = db.create_message(room_id, agent["id"], reply, "markdown", None, reply_mentions, metadata, thread_id)
 
-        # Notify agent connections
         for member in members:
             if member["id"] != agent["id"]:
-                payload = {
-                    "message_id": message["id"],
-                    "room_id": room_id,
-                    "from": {"id": agent["id"], "name": agent.get("name", "")},
-                    "text": reply,
-                    "parse_mode": "markdown",
-                    "date": datetime.now().isoformat(),
-                }
+                payload = {"message_id": message["id"], "room_id": room_id, "from": {"id": agent["id"], "name": agent.get("name", "")}, "text": reply, "parse_mode": "markdown", "date": datetime.now().isoformat()}
                 db.push_update(member["id"], "message", payload)
                 await ws_manager.notify_agent(member["id"], {"type": "message", **payload})
 
-        # Notify UI of saved message
-        await ws_manager.notify_ui({
-            "type": "new_message",
-            "room_id": room_id,
-            "thread_id": thread_id,
-            "message": {
-                "id": message["id"],
-                "room_id": room_id,
-                "sender_id": agent["id"],
-                "sender_name": agent.get("name") or full_agent.get("name", ""),
-                "text": reply,
-                "thread_id": thread_id,
-                "created_at": datetime.now().isoformat(),
-            }
-        })
+        await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": agent["id"], "sender_name": agent.get("name") or full_agent.get("name", ""), "text": reply, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
 
         # Chain collaboration
         if reply_mentions and room_type == "group":
             await asyncio.sleep(1)
-            await process_message(db, ws_manager, room_id, agent["id"], reply,
-                                   reply_mentions, room_type, chain_depth + 1, thread_id)
+            await process_message(db, ws_manager, room_id, agent["id"], reply, reply_mentions, room_type, chain_depth + 1, thread_id)
 
         # Self-improvement
-        if (collected_tool_calls and
-            len(collected_tool_calls) >= (full_agent.get("self_improve_threshold") or 2) and
-            chain_depth == 0 and full_agent.get("self_improve", 1)):
-            asyncio.create_task(
-                self_improvement_review(db, ws_manager, room_id, thread_id, full_agent,
-                                        collected_tool_calls, reply, model_config)
-            )
+        if (collected_tool_calls and len(collected_tool_calls) >= (full_agent.get("self_improve_threshold") or 2)
+            and chain_depth == 0 and full_agent.get("self_improve", 1)):
+            asyncio.create_task(_self_improvement(db, ws_manager, room_id, thread_id, full_agent, collected_tool_calls, reply, model_config))
 
 
-async def self_improvement_review(db, ws_manager, room_id, thread_id, agent,
-                                   tool_calls, last_reply, model_config):
-    """Background self-improvement: extract learnings from tool-heavy conversations."""
+async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_calls, last_reply, model_config):
+    """Background self-improvement."""
     try:
-        tool_summary = "\n".join([f"{t['name']}: {t.get('summary', '')} → {t['status']}" for t in tool_calls])
+        tool_summary = "\n".join([f"{t['name']}: {t.get('summary', '')} -> {t['status']}" for t in tool_calls])
+        review_msgs = [
+            {"role": "system", "content": "分析工具使用记录，判断是否有值得保存的技能。有则输出JSON：{\"save\": true, \"skill_name\": \"名称\", \"skill_description\": \"描述\", \"skill_content\": \"内容\"}，无则输出{\"save\": false}。只输出JSON。"},
+            {"role": "user", "content": f"智能体: {agent['name']}\n工具使用:\n{tool_summary}\n\n回复摘要: {last_reply[:500]}"}
+        ]
 
-        review_prompt = [{
-            "role": "system",
-            "content": """你是一个自我改进系统。分析以下工具使用记录，判断是否有值得保存的经验或技能。
-如果有，输出JSON：{"save": true, "skill_name": "简短名称", "skill_description": "一句话描述", "skill_content": "详细步骤"}
-如果没有，输出：{"save": false}
-只输出JSON。"""
-        }, {
-            "role": "user",
-            "content": f"智能体: {agent['name']}\n工具使用:\n{tool_summary}\n\n回复摘要: {last_reply[:500]}"
-        }]
+        cfg = model_config or {}
+        base_url = cfg.get("base_url") or get_hermes_config()["base_url"]
+        api_key_val = cfg.get("api_key") or get_hermes_config()["api_key"]
+        model_val = cfg.get("model") or get_hermes_config()["model"]
 
-        result = await direct_api_call(
-            model_config["base_url"] if model_config else get_hermes_config()["base_url"],
-            model_config["api_key"] if model_config else get_hermes_config()["api_key"],
-            model_config["model"] if model_config else get_hermes_config()["model"],
-            review_prompt[0]["content"], [review_prompt[1]],
-            1024, 0.3, {}
-        )
-
+        result = await direct_api_call(base_url, api_key_val, model_val, review_msgs[0]["content"], [review_msgs[1]], 1024, 0.3, {})
         if not result:
             return
 
@@ -631,29 +489,28 @@ async def self_improvement_review(db, ws_manager, room_id, thread_id, agent,
         if not parsed.get("save") or not parsed.get("skill_name"):
             return
 
-        skill = db.create_skill(agent["id"], parsed["skill_name"],
-                                parsed.get("skill_description", ""),
-                                parsed.get("skill_content", ""), "learned")
-
+        db.create_skill(agent["id"], parsed["skill_name"], parsed.get("skill_description", ""), parsed.get("skill_content", ""), "learned")
         print(f"[AI] 💾 Self-improvement: saved skill \"{parsed['skill_name']}\" for {agent['name']}")
 
-        # Notify UI
         db.ensure_system_agents()
         review_msg = f"💾 **Self-improvement**: 已学习新技能「{parsed['skill_name']}」— {parsed.get('skill_description', '')}"
         message = db.create_message(room_id, "system", review_msg, "markdown", None, [], None, thread_id)
-        await ws_manager.notify_ui({
-            "type": "new_message",
-            "room_id": room_id,
-            "thread_id": thread_id,
-            "message": {
-                "id": message["id"],
-                "room_id": room_id,
-                "sender_id": "system",
-                "sender_name": "系统",
-                "text": review_msg,
-                "thread_id": thread_id,
-                "created_at": datetime.now().isoformat(),
-            }
-        })
+        await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": "system", "sender_name": "系统", "text": review_msg, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
     except Exception as e:
         print(f"[AI] Self-improvement error: {e}")
+
+
+# === API for frontend: get engine status ===
+def get_engine_status() -> dict:
+    """Return Hermes engine status for the admin panel."""
+    return {
+        "hermes_available": HERMES_AVAILABLE,
+        "hermes_path": str(HERMES_PATH),
+        "engine": "hermes-agent" if HERMES_AVAILABLE else "direct-api",
+        "capabilities": [
+            "tool_use", "memory", "skills", "delegation", "cron",
+            "web_browse", "file_ops", "terminal", "http_requests"
+        ] if HERMES_AVAILABLE else [
+            "tool_use", "file_ops", "terminal", "http_requests"
+        ],
+    }
