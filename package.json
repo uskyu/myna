@@ -1,5 +1,5 @@
 {
-  "name": "hermes-hub",
+  "name": "myna",
   "version": "0.1.0",
   "description": "Multi-agent collaboration platform with Telegram-style Bot API gateway",
   "main": "src/index.js",

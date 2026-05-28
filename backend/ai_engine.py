@@ -362,7 +362,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     max_iters = 50
                     try:
                         import yaml
-                        _settings_db_path = Path("/root/hermes-hub/db/hermes-hub.sqlite")
+                        _settings_db_path = Path("/root/hermes-hub/db/myna.sqlite")
                         if _settings_db_path.exists():
                             import sqlite3
                             _conn = sqlite3.connect(str(_settings_db_path))
@@ -382,7 +382,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                         model=model,
                         max_iterations=max_iters,
                         quiet_mode=True,
-                        platform="hermes-hub",
+                        platform="myna",
                         skip_context_files=True,
                         skip_memory=False,
                         disabled_toolsets=disabled_toolsets,
@@ -711,7 +711,7 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         _global_self_improve = True
         _global_threshold = 2
         try:
-            _settings_db_path2 = Path("/root/hermes-hub/db/hermes-hub.sqlite")
+            _settings_db_path2 = Path("/root/hermes-hub/db/myna.sqlite")
             if _settings_db_path2.exists():
                 import sqlite3 as _sqlite3_2
                 _conn2 = _sqlite3_2.connect(str(_settings_db_path2))

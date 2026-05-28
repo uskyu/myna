@@ -18,7 +18,7 @@ router = APIRouter()
 _sessions: dict[str, float] = {}
 SESSION_TTL = 7 * 24 * 3600  # 7 days
 
-DEFAULT_PASSWORD = "hermeshub"
+DEFAULT_PASSWORD = "admin123"
 
 
 def _hash_password(password: str) -> str:

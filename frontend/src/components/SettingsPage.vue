@@ -100,8 +100,8 @@
         <div class="section-title">关于</div>
         <div class="setting-item" style="cursor:default">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          <span class="setting-label">Hermes Hub</span>
-          <span class="setting-value">v0.2.0</span>
+          <span class="setting-label">Myna</span>
+          <span class="setting-value">v0.3.0</span>
         </div>
       </div>
     </div>

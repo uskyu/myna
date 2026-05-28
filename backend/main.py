@@ -1,5 +1,5 @@
 """
-Hermes Hub - Python Backend
+Myna - Python Backend
 Multi-agent collaboration platform powered by Hermes Agent.
 """
 import os
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     data_dir = Path(__file__).parent.parent / "db"
     data_dir.mkdir(exist_ok=True)
     
-    db = Database(str(data_dir / "hermes-hub.sqlite"))
+    db = Database(str(data_dir / "myna.sqlite"))
     ws_manager = WSManager()
     workflow_runner = WorkflowRunner(db, ws_manager)
     workflow_scheduler = WorkflowScheduler(db, workflow_runner)
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     port = int(os.environ.get("PORT", "3456"))
     print(f"""
 ╔══════════════════════════════════════════╗
-║        hermes-hub v0.2.0 (Python)       ║
+║           Myna v0.3.0                   ║
 ╠══════════════════════════════════════════╣
 ║  Web UI:    http://localhost:{port}        ║
 ║  Gateway:   http://localhost:{port}/bot*   ║
@@ -85,7 +85,7 @@ async def lifespan(app: FastAPI):
     db.close()
 
 
-app = FastAPI(title="Hermes Hub", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Myna", version="0.3.0", lifespan=lifespan)
 
 # CORS
 app.add_middleware(
