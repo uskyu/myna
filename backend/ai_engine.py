@@ -27,6 +27,28 @@ except ImportError:
 # Thread pool for running sync Hermes Agent calls
 _executor = ThreadPoolExecutor(max_workers=4)
 
+# Pending approval requests: approval_id -> callback(decision)
+_pending_approvals: dict = {}
+
+
+async def _noop_async(*args, **kwargs):
+    pass
+
+
+async def _wait_for_approval(event: asyncio.Event, timeout: float):
+    """Wait for an approval event with timeout."""
+    try:
+        await asyncio.wait_for(event.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        pass
+
+
+def resolve_approval(approval_id: str, decision: str):
+    """Called by the API when user approves/denies a command."""
+    cb = _pending_approvals.get(approval_id)
+    if cb:
+        cb(decision)
+
 # Hub profiles root — each agent gets its own isolated profile
 HUB_PROFILES_ROOT = Path("/root/.hermes/profiles")
 
@@ -43,11 +65,20 @@ def get_agent_profile_dir(agent_id: str) -> Path:
     return profile_dir
 
 
-def _ensure_hub_agent_config(profile_dir: Path, base_url: str, api_key: str, model: str):
-    """Ensure the hub agent profile has a config.yaml with vision/auxiliary provider configured."""
+def _ensure_hub_agent_config(profile_dir: Path, base_url: str, api_key: str, model: str, exec_mode: str = "auto"):
+    """Ensure the hub agent profile has a config.yaml with vision/auxiliary provider configured.
+    
+    exec_mode controls approvals:
+      - 'auto': approvals.mode = off (YOLO, no prompts)
+      - 'confirm': approvals.mode = manual (dangerous commands need approval via UI)
+      - 'readonly': approvals.mode = off (tools are disabled at toolset level instead)
+    """
     import yaml
     config_path = profile_dir / "config.yaml"
     env_path = profile_dir / ".env"
+
+    # Map execution_mode to approvals.mode
+    approval_mode = "off" if exec_mode in ("auto", "readonly") else "manual"
 
     # Only write if config doesn't exist or is outdated
     needs_update = False
@@ -56,9 +87,9 @@ def _ensure_hub_agent_config(profile_dir: Path, base_url: str, api_key: str, mod
     else:
         try:
             existing = yaml.safe_load(config_path.read_text()) or {}
-            # Check if base_url changed
             prov = existing.get("providers", {}).get("hub", {})
-            if prov.get("base_url") != base_url:
+            existing_approval = existing.get("approvals", {}).get("mode", "off")
+            if prov.get("base_url") != base_url or existing_approval != approval_mode:
                 needs_update = True
         except:
             needs_update = True
@@ -76,7 +107,7 @@ def _ensure_hub_agent_config(profile_dir: Path, base_url: str, api_key: str, mod
                 }
             },
             "approvals": {
-                "mode": "off",
+                "mode": approval_mode,
             },
             "auxiliary": {
                 "provider": "custom:hub",
@@ -234,12 +265,68 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                 # memory, skills, sessions directory
                 profile_dir = get_agent_profile_dir(agent.get("id", "default"))
                 token = set_hermes_home_override(str(profile_dir))
-                # Ensure hub agents have a config that disables approval prompts
-                # and configures vision provider (they run autonomously, no human to approve)
-                _ensure_hub_agent_config(profile_dir, base_url, api_key, model)
-                # Enable YOLO mode for hub agents (no approval prompts)
+
+                # Determine execution mode from agent config
+                exec_mode = agent.get("execution_mode", "auto")
+
+                # Configure profile based on execution_mode
+                _ensure_hub_agent_config(profile_dir, base_url, api_key, model, exec_mode)
+
+                # Set YOLO mode based on execution_mode
                 old_yolo = os.environ.get("HERMES_YOLO_MODE")
-                os.environ["HERMES_YOLO_MODE"] = "1"
+                if exec_mode == "auto":
+                    os.environ["HERMES_YOLO_MODE"] = "1"
+                else:
+                    os.environ.pop("HERMES_YOLO_MODE", None)
+
+                # Determine toolsets based on execution_mode
+                disabled_toolsets = None
+                if exec_mode == "readonly":
+                    # Readonly: disable all write/execute tools
+                    disabled_toolsets = ["terminal", "file"]
+
+                # Set up approval callback for 'confirm' mode
+                if exec_mode == "confirm":
+                    from tools.terminal_tool import set_approval_callback
+                    def _hub_approval_callback(command, description, *, allow_permanent=True):
+                        """Push approval request to UI via WS and wait for response."""
+                        import uuid
+                        approval_id = str(uuid.uuid4())[:8]
+                        approval_event = asyncio.Event()
+                        approval_result = {"decision": "deny"}
+
+                        def _on_response(decision):
+                            approval_result["decision"] = decision
+                            approval_event.set()
+
+                        # Register pending approval
+                        _pending_approvals[approval_id] = _on_response
+
+                        # Push to UI
+                        asyncio.run_coroutine_threadsafe(
+                            callbacks.get("on_approval_request", _noop_async)(
+                                approval_id, command, description,
+                                agent.get("id"), agent.get("name")
+                            ),
+                            loop
+                        )
+
+                        # Wait for response (timeout 120s)
+                        try:
+                            future = asyncio.run_coroutine_threadsafe(
+                                _wait_for_approval(approval_event, 120),
+                                loop
+                            )
+                            future.result(timeout=125)
+                        except Exception:
+                            pass
+                        finally:
+                            _pending_approvals.pop(approval_id, None)
+
+                        return approval_result["decision"]
+
+                    set_approval_callback(_hub_approval_callback)
+
                 try:
                     agent_instance = AIAgent(
                         base_url=base_url,
@@ -251,6 +338,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                         platform="hermes-hub",
                         skip_context_files=True,
                         skip_memory=False,
+                        disabled_toolsets=disabled_toolsets,
                         tool_start_callback=_tool_start,
                         tool_complete_callback=_tool_complete,
                         stream_delta_callback=_stream_delta,
@@ -267,6 +355,10 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                         os.environ.pop("HERMES_YOLO_MODE", None)
                     else:
                         os.environ["HERMES_YOLO_MODE"] = old_yolo
+                    # Clear approval callback
+                    if exec_mode == "confirm":
+                        from tools.terminal_tool import set_approval_callback
+                        set_approval_callback(None)
 
             final_text = await loop.run_in_executor(_executor, _run_hermes_sync)
 
@@ -504,7 +596,19 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
                     break
             await ws_manager.notify_ui({"type": "tool_result", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "tool": info["name"], "ok": info["ok"], "output_preview": (info.get("output") or "")[:200], "timestamp": int(datetime.now().timestamp() * 1000)})
 
-        callbacks = {"on_token": on_token, "on_tool_call": on_tool_call, "on_tool_result": on_tool_result}
+        async def on_approval_request(approval_id, command, description, agent_id, agent_name):
+            await ws_manager.notify_ui({
+                "type": "approval_request",
+                "approval_id": approval_id,
+                "command": command,
+                "description": description,
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "room_id": room_id,
+                "stream_id": stream_id,
+            })
+
+        callbacks = {"on_token": on_token, "on_tool_call": on_tool_call, "on_tool_result": on_tool_result, "on_approval_request": on_approval_request}
 
         try:
             reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks)

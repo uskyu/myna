@@ -153,6 +153,24 @@
         </div>
       </div>
     </div>
+    <!-- Approval dialog -->
+    <div v-if="pendingApproval" class="approval-overlay">
+      <div class="approval-dialog">
+        <div class="approval-header">
+          <span class="approval-icon">⚠️</span>
+          <span class="approval-title">命令审批</span>
+        </div>
+        <div class="approval-agent">{{ pendingApproval.agentName }} 请求执行：</div>
+        <div class="approval-command"><code>{{ pendingApproval.command }}</code></div>
+        <div v-if="pendingApproval.description" class="approval-desc">{{ pendingApproval.description }}</div>
+        <div class="approval-actions">
+          <button class="approval-btn deny" @click="respondApproval('deny')">拒绝</button>
+          <button class="approval-btn approve" @click="respondApproval('once')">允许执行</button>
+          <button class="approval-btn approve-all" @click="respondApproval('session')" title="本次会话内同类命令自动通过">本次全部允许</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Input bar (hidden when info panel showing) -->
     <div v-if="!(type === 'group' && showSettings)" class="input-bar">
       <!-- Mention popup -->
@@ -259,6 +277,7 @@ const inputText = ref('')
 const messages = ref([])
 const typingAgent = ref(null)
 const showSettings = ref(false)
+const pendingApproval = ref(null)
 const attachments = ref([])
 const threads = ref([])
 const activeThreadId = ref(null)
@@ -852,6 +871,13 @@ async function onMembersChanged() {
   await loadConversations()
 }
 
+async function respondApproval(decision) {
+  if (!pendingApproval.value) return
+  const id = pendingApproval.value.id
+  pendingApproval.value = null
+  await api('POST', `/admin/approvals/${id}`, { decision })
+}
+
 function handleWS(msg) {
   if (msg.type === 'stream_start' && msg.room_id === props.room.id) {
     // activeStreams is now managed globally in store.js
@@ -892,6 +918,14 @@ function handleWS(msg) {
   } else if (msg.type === 'typing' && msg.room_id === props.room.id) {
     typingAgent.value = msg.from?.name || null
     setTimeout(() => { typingAgent.value = null }, 3000)
+  } else if (msg.type === 'approval_request' && msg.room_id === props.room.id) {
+    // Show approval dialog
+    pendingApproval.value = {
+      id: msg.approval_id,
+      command: msg.command,
+      description: msg.description,
+      agentName: msg.agent_name,
+    }
   }
 }
 

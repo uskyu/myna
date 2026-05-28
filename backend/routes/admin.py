@@ -511,6 +511,20 @@ async def delete_thread(thread_id: str, request: Request):
     return {"ok": True}
 
 
+# === Approval ===
+
+@router.post("/approvals/{approval_id}")
+async def respond_approval(approval_id: str, request: Request):
+    """User responds to an approval request (approve/deny)."""
+    from ai_engine import resolve_approval
+    body = await request.json()
+    decision = body.get("decision", "deny")  # 'once', 'session', 'always', 'deny'
+    if decision not in ("once", "session", "always", "deny"):
+        decision = "deny"
+    resolve_approval(approval_id, decision)
+    return {"ok": True, "decision": decision}
+
+
 @router.get("/threads/{thread_id}/messages")
 async def get_thread_messages(thread_id: str, request: Request):
     db = get_db(request)

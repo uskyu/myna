@@ -2117,3 +2117,100 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 }
 
 
+
+/* Approval dialog */
+.approval-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+  animation: fadeIn 0.15s ease;
+}
+.approval-dialog {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 16px);
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.approval-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.approval-icon { font-size: 20px; }
+.approval-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.approval-agent {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+.approval-command {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+}
+.approval-command code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.approval-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.approval-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+}
+.approval-btn.deny {
+  background: var(--surface);
+  color: var(--text-2);
+}
+.approval-btn.deny:hover {
+  background: var(--danger-soft, rgba(229,62,62,0.1));
+  color: var(--danger, #e53e3e);
+  border-color: var(--danger, #e53e3e);
+}
+.approval-btn.approve {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.approval-btn.approve:hover { opacity: 0.9; }
+.approval-btn.approve-all {
+  background: var(--surface);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.approval-btn.approve-all:hover {
+  background: var(--accent-soft);
+}
