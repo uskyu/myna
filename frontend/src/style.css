@@ -610,11 +610,9 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .msg-actions {
   display: flex;
   gap: 2px;
-  opacity: 0;
+  margin-left: auto;
+  opacity: 0.6;
   transition: opacity 0.15s;
-}
-.msg:hover .msg-actions {
-  opacity: 0.7;
 }
 .msg-actions:hover {
   opacity: 1 !important;
