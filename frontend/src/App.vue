@@ -16,6 +16,7 @@
       </div>
       <div class="sidebar-icon" :class="{ active: page === 'settings' }" @click="page = 'settings'" title="设置">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span v-if="updateInfo.available" class="red-dot"></span>
       </div>
     </div>
 
@@ -63,6 +64,7 @@
         <div class="nav-item" :class="{ active: page === 'settings' }" @click="page = 'settings'">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span class="label">设置</span>
+          <span v-if="updateInfo.available" class="red-dot"></span>
         </div>
       </div>
     </template>
@@ -83,7 +85,7 @@ import AdminCenter from './components/AdminCenter.vue'
 import RoomModal from './components/RoomModal.vue'
 import AgentModal from './components/AgentModal.vue'
 import LoginPage from './components/LoginPage.vue'
-import { api, ws, auth, setAuthToken, clearAuth } from './store.js'
+import { api, ws, auth, setAuthToken, clearAuth, updateInfo, checkForUpdate } from './store.js'
 
 const isAuthenticated = ref(false)
 const page = ref('chats')
@@ -152,6 +154,8 @@ function onAuthenticated() {
   isAuthenticated.value = true
   // Connect WS after auth
   ws.connect()
+  // Auto check for updates
+  checkForUpdate()
 }
 
 async function checkAuth() {
@@ -160,6 +164,7 @@ async function checkAuth() {
     if (res.authenticated) {
       isAuthenticated.value = true
       ws.connect()
+      checkForUpdate()
       return
     }
     clearAuth()

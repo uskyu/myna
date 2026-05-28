@@ -256,6 +256,25 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   color: var(--accent);
 }
 
+/* Red dot for update notification */
+.red-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e53e3e;
+  border: 2px solid var(--bg, #faf9f7);
+}
+.sidebar-icon { position: relative; }
+.nav-item { position: relative; }
+.nav-item .red-dot {
+  top: 4px;
+  right: 50%;
+  transform: translateX(14px);
+}
+
 .desktop-list-panel {
   width: 320px;
   min-width: 280px;

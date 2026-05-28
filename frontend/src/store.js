@@ -60,6 +60,33 @@ export const store = reactive({
   initialized: false,
 })
 
+// Update check state
+export const updateInfo = reactive({
+  available: false,
+  latestVersion: '',
+  checked: false,
+})
+
+const CURRENT_VERSION = '0.3.0'
+
+export async function checkForUpdate() {
+  try {
+    const res = await fetch('https://api.github.com/repos/uskyu/myna/releases/latest')
+    if (!res.ok) return
+    const data = await res.json()
+    const remote = (data.tag_name || '').replace(/^v/, '')
+    if (remote && remote !== CURRENT_VERSION) {
+      updateInfo.available = true
+      updateInfo.latestVersion = 'v' + remote
+    } else {
+      updateInfo.available = false
+    }
+    updateInfo.checked = true
+  } catch {
+    // Silent fail
+  }
+}
+
 // Clear unread count for a room
 export function clearUnread(roomId) {
   store.unreadCounts[roomId] = 0
