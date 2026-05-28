@@ -523,6 +523,103 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
       await new Promise(r => setTimeout(r, 1000));
       await processMessage(db, wsManager, roomId, agent.id, reply, replyMentions, roomType, chainDepth + 1, threadId);
     }
+
+    // Self-improvement review: extract learnings after tool-heavy conversations
+    if (collectedToolCalls.length >= 2 && chainDepth === 0) {
+      selfImprovementReview(db, wsManager, roomId, threadId, agent, history, reply, collectedToolCalls, modelConfig).catch(err => {
+        console.error('[AI] Self-improvement review failed:', err.message);
+      });
+    }
+  }
+}
+
+/**
+ * Background self-improvement: review conversation and extract reusable skills/learnings.
+ */
+async function selfImprovementReview(db, wsManager, roomId, threadId, agent, history, lastReply, toolCalls, modelConfig) {
+  // Only run if enough substance (2+ tool calls means real work was done)
+  const toolSummary = toolCalls.map(t => `${t.name}: ${t.summary || ''} → ${t.status}`).join('\n');
+
+  const reviewPrompt = [
+    { role: 'system', content: `你是一个自我改进系统。分析以下对话和工具使用记录，判断是否有值得保存的经验或技能。
+如果有，输出一个JSON对象：{"save": true, "skill_name": "简短名称", "skill_description": "一句话描述", "skill_content": "详细步骤/命令/注意事项"}
+如果没有值得保存的（太简单或太通用），输出：{"save": false}
+只输出JSON，不要其他内容。` },
+    { role: 'user', content: `智能体: ${agent.name}
+工具使用记录:
+${toolSummary}
+
+最终回复摘要: ${lastReply.slice(0, 500)}
+
+请判断是否有值得保存为技能的经验。` }
+  ];
+
+  try {
+    let config;
+    if (modelConfig) {
+      let params = {};
+      if (modelConfig.params_json) {
+        try { params = typeof modelConfig.params_json === 'string' ? JSON.parse(modelConfig.params_json) : modelConfig.params_json; } catch(e) {}
+      }
+      config = {
+        model: modelConfig.model,
+        baseUrl: modelConfig.base_url,
+        apiKey: modelConfig.api_key,
+        maxTokens: params.max_tokens || modelConfig.max_tokens || 1024,
+        temperature: 0.3,
+      };
+    } else {
+      config = getConfig();
+    }
+    if (!config || !config.apiKey) return;
+
+    const { finalText } = await toolUseLoop(config, reviewPrompt, config.model);
+    if (!finalText) return;
+
+    // Parse JSON response
+    const jsonMatch = finalText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return;
+
+    const result = JSON.parse(jsonMatch[0]);
+    if (!result.save || !result.skill_name) return;
+
+    // Save as skill for this agent
+    const skill = db.createSkill(
+      agent.id,
+      result.skill_name,
+      result.skill_description || '',
+      result.skill_content || '',
+      'learned'
+    );
+
+    console.log(`[AI] 💾 Self-improvement: saved skill "${result.skill_name}" for ${agent.name}`);
+
+    // Notify UI about the self-improvement
+    if (wsManager) {
+      const reviewMsg = `💾 **Self-improvement review**: 已学习新技能「${result.skill_name}」— ${result.skill_description || ''}`;
+
+      const message = threadId
+        ? await db.createMessageInThread(roomId, threadId, 'system', reviewMsg, 'markdown', null, [], null)
+        : await db.createMessage(roomId, 'system', reviewMsg, 'markdown', null, [], null);
+
+      wsManager.notifyUI({
+        type: 'new_message',
+        room_id: roomId,
+        thread_id: threadId || null,
+        message: {
+          id: message.id,
+          room_id: roomId,
+          sender_id: 'system',
+          sender_name: '系统',
+          text: reviewMsg,
+          thread_id: threadId || null,
+          created_at: new Date().toISOString()
+        }
+      });
+    }
+  } catch (err) {
+    // Silent fail — self-improvement is best-effort
+    console.error('[AI] Self-improvement parse error:', err.message);
   }
 }
 

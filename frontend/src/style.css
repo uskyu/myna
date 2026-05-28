@@ -1797,7 +1797,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
-  opacity: 0;
+  opacity: 0.6;
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
@@ -1812,7 +1812,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
-  opacity: 0;
+  opacity: 0.6;
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
