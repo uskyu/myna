@@ -347,10 +347,43 @@ body {
 @media (max-width: 768px) {
     .nav-menu {
         display: none;
+        flex-direction: column;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        padding: 1rem 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        gap: 0;
     }
-    
+
+    .nav-menu.open {
+        display: flex;
+    }
+
+    .nav-menu li {
+        padding: 0.6rem 0;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .nav-menu li:last-child {
+        border-bottom: none;
+    }
+
     .hamburger {
         display: flex;
+    }
+
+    /* 汉堡菜单激活动画 */
+    .hamburger.active span:nth-child(1) {
+        transform: translateY(9px) rotate(45deg);
+    }
+    .hamburger.active span:nth-child(2) {
+        opacity: 0;
+    }
+    .hamburger.active span:nth-child(3) {
+        transform: translateY(-9px) rotate(-45deg);
     }
     
     .hero-content h1 {

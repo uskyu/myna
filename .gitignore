@@ -8,3 +8,4 @@ __pycache__/
 cloud-data-platform-demo/
 db/*.sqlite-shm
 db/*.sqlite-wal
+db/
