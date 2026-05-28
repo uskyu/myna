@@ -9,10 +9,13 @@ services:
       - PORT=3456
       - DB_TYPE=sqlite
     volumes:
-      - app_data:/app/db
+      - app_db:/app/db
+      - app_data:/app/data
       - hermes_profiles:/root/.hermes/profiles
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.sqlite.yml:/app/docker-compose.yml:ro
 
 volumes:
+  app_db:
   app_data:
   hermes_profiles:
