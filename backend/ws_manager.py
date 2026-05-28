@@ -4,6 +4,7 @@ WebSocket connection manager for UI clients and agent connections.
 import json
 import time
 import asyncio
+import threading
 from fastapi import WebSocket
 
 # Stream timeout: 5 minutes without activity = auto-cleanup
@@ -16,6 +17,7 @@ class WSManager:
         self.agent_connections: dict[str, set[WebSocket]] = {}  # agent_id -> set of ws
         self.active_streams: dict[str, dict] = {}  # stream_id -> info
         self._stream_last_activity: dict[str, float] = {}  # stream_id -> timestamp
+        self._cancelled_streams: dict[str, threading.Event] = {}  # stream_id -> cancel event
 
     def add_ui(self, ws: WebSocket):
         self.ui_connections.add(ws)
@@ -132,3 +134,25 @@ class WSManager:
                     "agent_id": info.get("agent_id"),
                     "timeout": True,
                 })
+
+    def register_stream_cancel(self, stream_id: str) -> threading.Event:
+        """Register a cancellation event for a stream. Returns the Event to check in agent loop."""
+        event = threading.Event()
+        self._cancelled_streams[stream_id] = event
+        return event
+
+    def cancel_stream(self, stream_id: str):
+        """Signal cancellation for a stream."""
+        event = self._cancelled_streams.get(stream_id)
+        if event:
+            event.set()
+            print(f"[WS] Stream {stream_id} cancelled by user")
+
+    def unregister_stream_cancel(self, stream_id: str):
+        """Clean up cancellation event after stream ends."""
+        self._cancelled_streams.pop(stream_id, None)
+
+    def is_stream_cancelled(self, stream_id: str) -> bool:
+        """Check if a stream has been cancelled."""
+        event = self._cancelled_streams.get(stream_id)
+        return event.is_set() if event else False

@@ -737,6 +737,41 @@ async def copy_skill(skill_id: str, request: Request):
     return {"ok": True, "result": skill}
 
 
+# === Room Skills (isolation per room) ===
+
+@router.get("/rooms/{room_id}/skills")
+async def get_room_skills(room_id: str, request: Request):
+    db = get_db(request)
+    skills = db.get_room_skills_full(room_id)
+    return {"ok": True, "result": skills}
+
+
+@router.put("/rooms/{room_id}/skills")
+async def set_room_skills(room_id: str, request: Request):
+    db = get_db(request)
+    body = await request.json()
+    skill_ids = body.get("skill_ids", [])
+    db.set_room_skills(room_id, skill_ids)
+    skills = db.get_room_skills_full(room_id)
+    return {"ok": True, "result": skills}
+
+
+@router.post("/rooms/{room_id}/skills/{skill_id}")
+async def add_room_skill(room_id: str, skill_id: str, request: Request):
+    db = get_db(request)
+    db.add_room_skill(room_id, skill_id)
+    skills = db.get_room_skills_full(room_id)
+    return {"ok": True, "result": skills}
+
+
+@router.delete("/rooms/{room_id}/skills/{skill_id}")
+async def remove_room_skill(room_id: str, skill_id: str, request: Request):
+    db = get_db(request)
+    db.remove_room_skill(room_id, skill_id)
+    skills = db.get_room_skills_full(room_id)
+    return {"ok": True, "result": skills}
+
+
 # === Hub Settings ===
 
 @router.get("/settings")
@@ -807,7 +842,7 @@ async def serve_media(path: str, download: str = None):
 
 import subprocess
 
-MYNA_VERSION = os.environ.get("MYNA_VERSION", "0.3.8")
+MYNA_VERSION = os.environ.get("MYNA_VERSION", "0.5.0")
 
 @router.get("/system/version")
 async def get_system_version():

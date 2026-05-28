@@ -260,10 +260,12 @@ def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, 
 
 
 async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
-                           model_config: dict | None, callbacks: dict) -> str | None:
+                           model_config: dict | None, callbacks: dict,
+                           cancel_event=None) -> str | None:
     """
     Run Hermes AIAgent for a conversation turn.
     Uses callbacks for real-time tool event streaming to UI.
+    cancel_event: threading.Event that signals cancellation from UI.
     """
     on_token = callbacks.get("on_token")
     on_tool_call = callbacks.get("on_tool_call")
@@ -302,6 +304,9 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
             loop = asyncio.get_event_loop()
 
             def _tool_start(tool_call_id, name, args):
+                # Check cancellation before each tool call
+                if cancel_event and cancel_event.is_set():
+                    raise InterruptedError("Stream cancelled by user")
                 summary = _tool_summary(name, args if isinstance(args, dict) else {})
                 tool_events.append({"type": "start", "name": name, "summary": summary, "id": tool_call_id})
                 if on_tool_call:
@@ -656,15 +661,39 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         # Build conversation history
         history = []
+        last_interrupted_context = None
         for m in recent_messages:
             role = "assistant" if m["sender_id"] == agent["id"] else "user"
             content = m["text"]
             if m.get("sender_name") and m["sender_id"] != agent["id"]:
                 content = f"[{m['sender_name']}]: {content}"
             history.append({"role": role, "content": content})
+            # Track if the last assistant message was interrupted
+            if m["sender_id"] == agent["id"] and m.get("metadata"):
+                try:
+                    meta = json.loads(m["metadata"]) if isinstance(m["metadata"], str) else m["metadata"]
+                    if meta.get("interrupted"):
+                        last_interrupted_context = meta.get("interrupted_tool_calls", [])
+                except:
+                    pass
 
-        # Load agent skills for context
+        # If last agent message was interrupted, inject continuation context
+        if last_interrupted_context and history:
+            tool_summary = "\n".join([f"  - {t['name']}: {t.get('summary', '')} → {t['status']}" for t in last_interrupted_context])
+            continuation_note = f"\n\n[续接提示] 你上次的回复被中断了。已完成的工具调用：\n{tool_summary}\n请从中断处继续，不要重复已完成的步骤。"
+            # Append to the last user message
+            for i in range(len(history) - 1, -1, -1):
+                if history[i]["role"] == "user":
+                    history[i]["content"] += continuation_note
+                    break
+
+        # Load agent skills for context (filtered by room scope)
         agent_skills = db.get_agent_skills(agent["id"])
+        room_skill_ids = db.get_room_skills(room_id)
+        if room_skill_ids:
+            # Room has explicit skill config — only use skills enabled for this room
+            agent_skills = [s for s in agent_skills if s["id"] in room_skill_ids]
+        # If room has no skill config, use all agent skills (backward compatible)
 
         # Build system prompt
         all_agents = db.list_agents()
@@ -716,8 +745,11 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         callbacks = {"on_token": on_token, "on_tool_call": on_tool_call, "on_tool_result": on_tool_result, "on_approval_request": on_approval_request}
 
+        # Register cancellation event for this stream
+        cancel_event = ws_manager.register_stream_cancel(stream_id)
+
         try:
-            reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks)
+            reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks, cancel_event)
         except Exception as e:
             print(f"[AI] Error for {agent.get('name')}: {e}")
             traceback.print_exc()
@@ -726,8 +758,13 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
             reply = (stream_info.get("text", "") if stream_info else "") or None
             if not reply:
                 reply = f"⚠️ 执行出错：{str(e)[:100]}"
+        finally:
+            ws_manager.unregister_stream_cancel(stream_id)
 
-        await ws_manager.notify_ui({"type": "stream_end", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"]})
+        # Check if cancelled
+        is_interrupted = cancel_event.is_set()
+
+        await ws_manager.notify_ui({"type": "stream_end", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "interrupted": is_interrupted})
 
         # Give async callbacks time to complete (they're scheduled via run_coroutine_threadsafe)
         await asyncio.sleep(0.5)
@@ -739,7 +776,18 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         if not reply and collected_tool_calls:
             reply = "（工具执行完成）"
 
+        # If interrupted, mark in reply and metadata
+        if is_interrupted:
+            if not reply:
+                reply = "⏸️ 已中断"
+            else:
+                reply += "\n\n⏸️ *已被中断*"
+
         metadata = {"tool_calls": collected_tool_calls} if collected_tool_calls else None
+        if is_interrupted:
+            metadata = metadata or {}
+            metadata["interrupted"] = True
+            metadata["interrupted_tool_calls"] = collected_tool_calls
 
         reply_mentions = []
         # Strip markdown formatting around @mentions: **@name**, *@name*, `@name`, etc.
@@ -760,12 +808,12 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": agent["id"], "sender_name": agent.get("name") or full_agent.get("name", ""), "text": reply, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
 
-        # Chain collaboration
-        if reply_mentions and room_type == "group":
+        # Chain collaboration (skip if interrupted)
+        if reply_mentions and room_type == "group" and not is_interrupted:
             await asyncio.sleep(1)
             await process_message(db, ws_manager, room_id, agent["id"], reply, reply_mentions, room_type, chain_depth + 1, thread_id)
 
-        # Self-improvement
+        # Self-improvement (skip if interrupted)
         # Use the passed db object directly (no hardcoded sqlite path)
         _global_self_improve = True
         _global_threshold = 2

@@ -492,6 +492,44 @@ class BaseDatabase:
         return self.create_skill(target_agent_id, skill["name"], skill["description"],
                                 skill["content"], skill["file_type"])
 
+    # === Room Skills (skill isolation per room) ===
+    def get_room_skills(self, room_id: str) -> list:
+        """Get skill IDs enabled for a specific room."""
+        ph = self._placeholder()
+        rows = self.fetchall(f"SELECT skill_id FROM room_skills WHERE room_id = {ph}", (room_id,))
+        return [r["skill_id"] for r in rows]
+
+    def set_room_skills(self, room_id: str, skill_ids: list):
+        """Replace all skill associations for a room."""
+        ph = self._placeholder()
+        self.execute(f"DELETE FROM room_skills WHERE room_id = {ph}", (room_id,))
+        for sid in skill_ids:
+            self.execute(f"INSERT INTO room_skills (room_id, skill_id) VALUES ({ph}, {ph})", (room_id, sid))
+        self.commit()
+
+    def add_room_skill(self, room_id: str, skill_id: str):
+        """Add a single skill to a room."""
+        ph = self._placeholder()
+        self.execute(f"INSERT OR IGNORE INTO room_skills (room_id, skill_id) VALUES ({ph}, {ph})", (room_id, skill_id))
+        self.commit()
+
+    def remove_room_skill(self, room_id: str, skill_id: str):
+        """Remove a single skill from a room."""
+        ph = self._placeholder()
+        self.execute(f"DELETE FROM room_skills WHERE room_id = {ph} AND skill_id = {ph}", (room_id, skill_id))
+        self.commit()
+
+    def get_room_skills_full(self, room_id: str) -> list:
+        """Get full skill objects enabled for a room."""
+        ph = self._placeholder()
+        return self.fetchall(f"""
+            SELECT s.*, a.name as agent_name FROM room_skills rs
+            JOIN agent_skills s ON rs.skill_id = s.id
+            LEFT JOIN agents a ON s.agent_id = a.id
+            WHERE rs.room_id = {ph}
+            ORDER BY s.name ASC
+        """, (room_id,))
+
     # === DM Rooms ===
     def get_dm_room(self, user_id: str, agent_id: str):
         ph = self._placeholder()
@@ -718,6 +756,14 @@ class SQLiteDatabase(BaseDatabase):
                 updated_at TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS room_skills (
+                room_id TEXT NOT NULL,
+                skill_id TEXT NOT NULL,
+                PRIMARY KEY (room_id, skill_id),
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (skill_id) REFERENCES agent_skills(id) ON DELETE CASCADE
+            );
         """)
         # Migration: fix old schema where status DEFAULT was 'offline'
         # Update any existing offline agents to online (they should be online by default)
@@ -916,6 +962,14 @@ class MySQLDatabase(BaseDatabase):
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+
+            """CREATE TABLE IF NOT EXISTS room_skills (
+                room_id VARCHAR(36) NOT NULL,
+                skill_id VARCHAR(36) NOT NULL,
+                PRIMARY KEY (room_id, skill_id),
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (skill_id) REFERENCES agent_skills(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
         ]
         with self.conn.cursor() as cur:

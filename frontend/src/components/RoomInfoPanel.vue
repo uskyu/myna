@@ -57,6 +57,51 @@
       <div class="setting-hint">智能体能看到的最近消息条数。设为 0 表示使用全局设置</div>
     </div>
 
+    <!-- Room Skills -->
+    <div class="info-section">
+      <div class="section-head">
+        <h4>🧠 技能配置</h4>
+        <button class="btn-sm" @click="showSkillPicker = true">管理</button>
+      </div>
+      <div v-if="roomSkills.length === 0" class="hint-box">
+        <p>未配置技能隔离。当前使用各智能体的全部技能。</p>
+        <p class="hint-sub">点击「管理」选择本群聊启用的技能，实现不同群聊间技能隔离。</p>
+      </div>
+      <div v-else class="skill-chips">
+        <div v-for="s in roomSkills" :key="s.id" class="skill-chip">
+          <span class="skill-chip-name">{{ s.name }}</span>
+          <span v-if="s.agent_name" class="skill-chip-from">{{ s.agent_name }}</span>
+          <button class="skill-chip-remove" @click="removeRoomSkill(s.id)" title="移除">×</button>
+        </div>
+      </div>
+
+      <!-- Skill picker modal -->
+      <div v-if="showSkillPicker" class="skill-picker-overlay" @click.self="showSkillPicker = false">
+        <div class="skill-picker-modal">
+          <div class="skill-picker-header">
+            <h4>选择本群聊启用的技能</h4>
+            <button class="close-btn" @click="showSkillPicker = false">×</button>
+          </div>
+          <div class="skill-picker-hint">勾选的技能将在本群聊中生效。未勾选的技能不会注入到智能体上下文中。</div>
+          <div v-if="allSkills.length === 0" class="skill-picker-empty">暂无技能。请先在智能体详情中创建技能。</div>
+          <div v-else class="skill-picker-list">
+            <div v-for="s in allSkills" :key="s.id" class="skill-picker-item" @click="toggleSkill(s)">
+              <input type="checkbox" :checked="isSkillEnabled(s.id)" @click.stop="toggleSkill(s)">
+              <div class="skill-picker-info">
+                <span class="skill-picker-name">{{ s.name }}</span>
+                <span class="skill-picker-desc">{{ s.description || '无描述' }}</span>
+                <span v-if="s.agent_name" class="skill-picker-origin">来自: {{ s.agent_name }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="skill-picker-footer">
+            <button class="btn-sm" @click="clearRoomSkills">清除全部（使用默认）</button>
+            <button class="btn-sm primary" @click="showSkillPicker = false">完成</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Members -->
     <div class="info-section">
       <div class="section-head">
@@ -194,6 +239,9 @@ const showWorkflowEditor = ref(false)
 const editingWorkflow = ref(null)
 const historyWorkflowId = ref(null)
 const historyRuns = ref([])
+const roomSkills = ref([])
+const allSkills = ref([])
+const showSkillPicker = ref(false)
 const form = reactive({
   name: props.room.name || '',
   description: props.room.description || '',
@@ -219,6 +267,40 @@ async function load() {
       } catch {}
     }
   }
+}
+
+async function loadRoomSkills() {
+  const data = await api('GET', `/admin/rooms/${props.room.id}/skills`)
+  roomSkills.value = data.result || []
+}
+
+async function loadAllSkills() {
+  const data = await api('GET', '/admin/skills')
+  allSkills.value = data.result || []
+}
+
+function isSkillEnabled(skillId) {
+  return roomSkills.value.some(s => s.id === skillId)
+}
+
+async function toggleSkill(skill) {
+  if (isSkillEnabled(skill.id)) {
+    const data = await api('DELETE', `/admin/rooms/${props.room.id}/skills/${skill.id}`)
+    roomSkills.value = data.result || []
+  } else {
+    const data = await api('POST', `/admin/rooms/${props.room.id}/skills/${skill.id}`)
+    roomSkills.value = data.result || []
+  }
+}
+
+async function removeRoomSkill(skillId) {
+  const data = await api('DELETE', `/admin/rooms/${props.room.id}/skills/${skillId}`)
+  roomSkills.value = data.result || []
+}
+
+async function clearRoomSkills() {
+  const data = await api('PUT', `/admin/rooms/${props.room.id}/skills`, { skill_ids: [] })
+  roomSkills.value = data.result || []
 }
 
 const available = computed(() => {
@@ -397,7 +479,7 @@ function runDuration(run) {
   return `${Math.floor(diff / 3600)}时${Math.floor((diff % 3600) / 60)}分`
 }
 
-onMounted(() => { load(); loadWorkflows() })
+onMounted(() => { load(); loadWorkflows(); loadRoomSkills(); loadAllSkills() })
 </script>
 
 <style scoped>
@@ -705,4 +787,52 @@ onMounted(() => { load(); loadWorkflows() })
 .history-status { font-size: 14px; }
 .history-time { flex: 1; color: var(--text-2); }
 .history-duration { color: var(--text-dim); font-size: 12px; }
+
+/* Room Skills */
+.skill-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-chip {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px;
+  padding: 4px 10px; font-size: 12px;
+}
+.skill-chip-name { font-weight: 500; color: var(--text); }
+.skill-chip-from { color: var(--text-dim); font-size: 11px; }
+.skill-chip-remove {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px; margin-left: 2px;
+}
+.skill-chip-remove:hover { color: var(--danger); }
+.hint-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+.skill-picker-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.skill-picker-modal {
+  background: var(--bg); border-radius: 12px; width: 90%; max-width: 480px;
+  max-height: 70vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.skill-picker-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.skill-picker-header h4 { margin: 0; font-size: 15px; }
+.skill-picker-hint { padding: 10px 20px; font-size: 12px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+.skill-picker-empty { padding: 30px 20px; text-align: center; color: var(--text-dim); }
+.skill-picker-list { overflow-y: auto; flex: 1; padding: 8px 0; }
+.skill-picker-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 20px; cursor: pointer;
+}
+.skill-picker-item:hover { background: var(--bg-2); }
+.skill-picker-item input[type="checkbox"] { margin-top: 3px; accent-color: var(--accent); }
+.skill-picker-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.skill-picker-name { font-weight: 500; font-size: 13px; color: var(--text); }
+.skill-picker-desc { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-picker-origin { font-size: 11px; color: var(--accent); }
+.skill-picker-footer {
+  display: flex; justify-content: space-between; padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-dim); }
+.close-btn:hover { color: var(--text); }
 </style>

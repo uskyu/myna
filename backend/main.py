@@ -199,7 +199,17 @@ async def websocket_endpoint(websocket: WebSocket):
                             "output": tc.get("result", ""),
                         })
             while True:
-                await websocket.receive_text()
+                raw = await websocket.receive_text()
+                # Handle UI commands (cancel stream, etc.)
+                try:
+                    import json as _json
+                    cmd = _json.loads(raw)
+                    if cmd.get("type") == "cancel_stream":
+                        stream_id = cmd.get("stream_id")
+                        if stream_id:
+                            app.state.ws_manager.cancel_stream(stream_id)
+                except:
+                    pass
         except WebSocketDisconnect:
             pass
         finally:
