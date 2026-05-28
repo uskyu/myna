@@ -739,18 +739,31 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
 
 async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_calls, last_reply, model_config):
-    """Background self-improvement: extract skills from tool usage."""
+    """Background self-improvement: extract skills from tool usage with dedup and quality filter."""
     try:
-        tool_summary = "\n".join([f"- {t['name']}: {t.get('summary', '')} (结果: {t['status']}, {(t.get('result') or '')[:100]})" for t in tool_calls])
-        review_msgs = [
-            {"role": "system", "content": """你是技能提取器。根据智能体的工具使用记录，提取一个可复用的技能。
+        # Get existing skills for this agent to avoid duplicates
+        existing_skills = db.get_agent_skills(agent["id"])
+        existing_names = [s["name"] for s in existing_skills]
+        existing_summary = "\n".join([f"- {s['name']}: {s.get('description', '')}" for s in existing_skills[:20]]) if existing_skills else "（暂无已有技能）"
 
-规则：
-1. 必须提取一个技能，不允许说"不值得保存"
-2. 技能名称要简洁明确（如"Python文件读写"、"API数据抓取"、"文本摘要生成"）
-3. 技能内容要包含具体步骤和关键参数，让下次遇到类似任务时能直接复用
-4. 只输出JSON，格式：{"skill_name": "名称", "skill_description": "一句话描述", "skill_content": "详细步骤和要点"}"""},
-            {"role": "user", "content": f"智能体: {agent['name']}\n\n工具使用记录:\n{tool_summary}\n\n最终回复摘要: {last_reply[:800]}"}
+        tool_summary = "\n".join([f"- {t['name']}: {t.get('summary', '')} (结果: {t['status']}, {(t.get('result') or '')[:100]})" for t in tool_calls])
+
+        review_msgs = [
+            {"role": "system", "content": f"""你是技能提取器。根据智能体的工具使用记录，判断是否值得提取/更新技能。
+
+已有技能列表：
+{existing_summary}
+
+判断规则：
+1. 如果这次操作只是简单的一问一答、查询信息、闲聊，输出 {{"action": "skip", "reason": "简单查询不需要保存"}}
+2. 如果这次操作和已有技能高度重复（同类任务、同样步骤），输出 {{"action": "update", "target_skill": "已有技能名", "skill_content": "更新后的完整内容"}}
+3. 只有当这次操作涉及多步骤、有复用价值、且和已有技能不重复时，才输出 {{"action": "create", "skill_name": "名称", "skill_description": "一句话描述", "skill_content": "详细步骤和要点"}}
+
+不值得保存的例子：查看文件内容、简单问答、单步命令、日常对话
+值得保存的例子：多步部署流程、复杂调试过程、数据处理管道、配置多个服务的协作
+
+只输出JSON，不要其他文字。"""},
+            {"role": "user", "content": f"智能体: {agent['name']}\n\n工具使用记录:\n{tool_summary}\n\n最终回复摘要: {last_reply[:500]}"}
         ]
 
         cfg = model_config or {}
@@ -769,26 +782,59 @@ async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_call
             return
 
         parsed = json.loads(json_match.group())
-        skill_name = parsed.get("skill_name", "").strip()
-        if not skill_name:
-            print(f"[AI] Self-improvement: empty skill_name for {agent['name']}")
+        action = parsed.get("action", "skip")
+
+        if action == "skip":
+            reason = parsed.get("reason", "不值得保存")
+            print(f"[AI] 🧠 Self-improvement skipped for {agent['name']}: {reason}")
             return
 
-        # Save skill to database
-        db.create_skill(
-            agent["id"],
-            skill_name,
-            parsed.get("skill_description", ""),
-            parsed.get("skill_content", ""),
-            "learned"
-        )
-        print(f"[AI] 💾 Self-improvement: saved skill \"{skill_name}\" for {agent['name']}")
+        if action == "update":
+            target_name = parsed.get("target_skill", "")
+            new_content = parsed.get("skill_content", "")
+            # Find the existing skill to update
+            target_skill = None
+            for s in existing_skills:
+                if s["name"] == target_name:
+                    target_skill = s
+                    break
+            if target_skill and new_content:
+                db.update_skill(target_skill["id"], {"content": new_content})
+                print(f"[AI] 🔄 Self-improvement: updated skill \"{target_name}\" for {agent['name']}")
+                db.ensure_system_agents()
+                review_msg = f"🔄 **已更新技能**「{target_name}」"
+                message = db.create_message(room_id, "system", review_msg, "markdown", None, [], None, thread_id)
+                await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": "system", "sender_name": "系统", "text": review_msg, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
+            else:
+                print(f"[AI] 🧠 Self-improvement: wanted to update \"{target_name}\" but not found, skipping")
+            return
 
-        # Notify UI
-        db.ensure_system_agents()
-        review_msg = f"💾 **已学习新技能**「{skill_name}」— {parsed.get('skill_description', '')}"
-        message = db.create_message(room_id, "system", review_msg, "markdown", None, [], None, thread_id)
-        await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": "system", "sender_name": "系统", "text": review_msg, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
+        if action == "create":
+            skill_name = parsed.get("skill_name", "").strip()
+            if not skill_name:
+                print(f"[AI] Self-improvement: empty skill_name for {agent['name']}")
+                return
+
+            # Final dedup check - fuzzy match against existing names
+            for existing_name in existing_names:
+                if skill_name.lower() == existing_name.lower() or skill_name in existing_name or existing_name in skill_name:
+                    print(f"[AI] 🧠 Self-improvement: skill \"{skill_name}\" too similar to existing \"{existing_name}\", skipping")
+                    return
+
+            db.create_skill(
+                agent["id"],
+                skill_name,
+                parsed.get("skill_description", ""),
+                parsed.get("skill_content", ""),
+                "learned"
+            )
+            print(f"[AI] 💾 Self-improvement: saved skill \"{skill_name}\" for {agent['name']}")
+
+            db.ensure_system_agents()
+            review_msg = f"💾 **已学习新技能**「{skill_name}」— {parsed.get('skill_description', '')}"
+            message = db.create_message(room_id, "system", review_msg, "markdown", None, [], None, thread_id)
+            await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": "system", "sender_name": "系统", "text": review_msg, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
+
     except Exception as e:
         print(f"[AI] Self-improvement error: {e}")
         import traceback

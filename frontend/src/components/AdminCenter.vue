@@ -57,6 +57,11 @@
                   <input type="radio" name="threshold" :value="opt.value" :checked="hubSettings.self_improve_threshold === opt.value" @change="onThresholdChange(opt.value)">
                   <span>{{ opt.label }}</span>
                 </label>
+                <label class="radio-option custom-threshold" :class="{ active: isCustomThreshold }">
+                  <input type="radio" name="threshold" value="custom" :checked="isCustomThreshold" @change="showCustomThreshold = true">
+                  <span>自定义</span>
+                  <input v-if="isCustomThreshold || showCustomThreshold" type="number" min="1" max="50" class="threshold-input" v-model.number="customThresholdVal" @blur="onCustomThresholdBlur" @keyup.enter="onCustomThresholdBlur" placeholder="次数">
+                </label>
               </div>
             </div>
           </div>
@@ -228,6 +233,13 @@ const thresholdOptions = [
   { label: '8 次', value: '8' },
 ]
 
+const showCustomThreshold = ref(false)
+const customThresholdVal = ref(10)
+const isCustomThreshold = computed(() => {
+  const val = hubSettings.self_improve_threshold
+  return !thresholdOptions.some(o => o.value === val)
+})
+
 const agents = computed(() => store.agents.filter(a => a.id !== 'user' && a.id !== 'system'))
 
 const skillGroups = computed(() => {
@@ -260,7 +272,15 @@ async function toggleSelfImprove() {
 
 async function onThresholdChange(val) {
   hubSettings.self_improve_threshold = val
+  showCustomThreshold.value = false
   await api('PUT', '/admin/settings', { self_improve_threshold: val })
+}
+
+async function onCustomThresholdBlur() {
+  const val = Math.max(1, Math.min(50, customThresholdVal.value || 5))
+  customThresholdVal.value = val
+  hubSettings.self_improve_threshold = String(val)
+  await api('PUT', '/admin/settings', { self_improve_threshold: String(val) })
 }
 
 async function loadAllSkills() {
@@ -458,7 +478,17 @@ onMounted(() => {
   border: 1px solid var(--border);
   transition: all 0.15s;
 }
-.config-options .radio-option input { display: none; }
+.config-options .radio-option input[type="radio"] { display: none; }
+.config-options .radio-option .threshold-input {
+  display: inline-block;
+  width: 50px;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+}
 .config-options .radio-option.active {
   background: var(--accent-soft, rgba(45,106,79,0.1));
   border-color: var(--accent);
