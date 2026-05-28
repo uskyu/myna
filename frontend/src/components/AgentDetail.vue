@@ -88,17 +88,6 @@
         <div class="hint">暂无知识库文件</div>
       </div>
 
-      <!-- Tools -->
-      <div class="profile-section">
-        <h4>⚙️ 工具</h4>
-        <div class="profile-list-item">run_command — 执行系统命令</div>
-        <div class="profile-list-item">read_file — 读取文件内容</div>
-        <div class="profile-list-item">write_file — 写入文件</div>
-        <div class="profile-list-item">http_request — HTTP 请求</div>
-        <div class="profile-list-item">search_files — 搜索文件</div>
-        <div class="profile-list-item">install_package — 安装依赖包</div>
-      </div>
-
       <!-- Execution & Self-improvement settings -->
       <div class="profile-section">
         <h4>🔐 权限与自我迭代</h4>

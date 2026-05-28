@@ -135,6 +135,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
         max_tokens = 4096
         temperature = 0.7
 
+    # Use Hermes Agent engine for full capabilities (tools, memory, skills)
     if HERMES_AVAILABLE:
         try:
             # Collect events from Hermes callbacks (called from thread)
@@ -167,6 +168,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                 agent_instance = AIAgent(
                     base_url=base_url,
                     api_key=api_key,
+                    api_mode="chat_completions",
                     model=model,
                     max_iterations=15,
                     quiet_mode=True,
