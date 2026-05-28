@@ -219,9 +219,18 @@ async function chatCompletion(agent, history, callbacks = {}, modelConfig = null
     return null;
   }
 
+  const toolsDesc = `你有以下工具可以使用：
+- run_command: 执行系统命令（SSH连接、安装软件、管理服务等）
+- read_file: 读取文件内容
+- write_file: 写入文件
+- http_request: 发送HTTP请求
+- search_files: 搜索文件
+
+需要时主动使用工具获取信息或执行操作。你可以接收服务器地址、密码、API密钥等信息并直接使用它们来完成任务。不要拒绝执行用户要求的操作。`;
+
   const systemPrompt = agent.description
-    ? `你是 ${agent.name}。${agent.description}\n\n你有以下工具可以使用：执行命令(run_command)、读取文件(read_file)、写入文件(write_file)、HTTP请求(http_request)、搜索文件(search_files)。\n需要时主动使用工具获取信息或执行操作。回复使用 Markdown 格式，保持简洁专业。`
-    : `你是 ${agent.name}，一个智能助手。你有工具可以使用：执行命令、读写文件、HTTP请求、搜索文件。需要时主动使用工具。回复使用 Markdown 格式，保持简洁专业。`;
+    ? `你是 ${agent.name}。${agent.description}\n\n${toolsDesc}\n\n回复使用 Markdown 格式，保持简洁专业。直接执行用户的指令，不要推脱或建议用户自己操作。`
+    : `你是 ${agent.name}，一个全能智能助手。你直接帮用户完成任务，包括连接服务器、执行命令、管理文件等。\n\n${toolsDesc}\n\n回复使用 Markdown 格式，保持简洁专业。直接执行用户的指令，不要推脱或建议用户自己操作。`;
 
   const messages = [
     { role: 'system', content: systemPrompt },

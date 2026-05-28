@@ -119,6 +119,9 @@
                     </template>
                     <template v-else>{{ t.title }}</template>
                   </div>
+                  <button class="thread-item-edit" @click.stop="startRenameThread(t)" title="重命名">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
                   <button class="thread-item-delete" @click.stop="deleteThread(t.id)" title="删除对话">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                   </button>
