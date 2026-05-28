@@ -122,8 +122,20 @@ def _ensure_hub_agent_config(profile_dir: Path, base_url: str, api_key: str, mod
 
 
 def get_hermes_config():
-    """Read Hermes config for API credentials."""
+    """Read Hermes config for API credentials.
+    Priority: env vars (AI_API_BASE/AI_API_KEY/AI_MODEL) > ~/.hermes/config.yaml
+    """
     import yaml
+
+    # Check environment variables first (Docker deployment)
+    env_key = os.environ.get("AI_API_KEY", "")
+    if env_key:
+        return {
+            "model": os.environ.get("AI_MODEL", "gpt-4o"),
+            "base_url": os.environ.get("AI_API_BASE", "https://api.openai.com/v1"),
+            "api_key": env_key,
+        }
+
     config_path = Path.home() / ".hermes" / "config.yaml"
     env_path = Path.home() / ".hermes" / ".env"
 

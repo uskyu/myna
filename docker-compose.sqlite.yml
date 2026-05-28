@@ -8,8 +8,14 @@ services:
     environment:
       - PORT=3456
       - DB_TYPE=sqlite
+      # AI API 配置（用户必填）
+      - AI_API_BASE=${AI_API_BASE:-https://api.openai.com/v1}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-gpt-4o}
     volumes:
       - app_data:/app/db
+      - hermes_profiles:/root/.hermes/profiles
 
 volumes:
   app_data:
+  hermes_profiles:

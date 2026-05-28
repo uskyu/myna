@@ -33,12 +33,18 @@ services:
       - MYSQL_USER=myna
       - MYSQL_PASSWORD=myna
       - MYSQL_DATABASE=myna
+      # AI API 配置（用户必填）
+      - AI_API_BASE=${AI_API_BASE:-https://api.openai.com/v1}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-gpt-4o}
     depends_on:
       mysql:
         condition: service_healthy
     volumes:
       - app_data:/app/data
+      - hermes_profiles:/root/.hermes/profiles
 
 volumes:
   mysql_data:
   app_data:
+  hermes_profiles:
