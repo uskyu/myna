@@ -2348,6 +2348,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   left: 0;
   right: 0;
   pointer-events: none;
+  justify-content: flex-end;
 }
 .action-bar-btn {
   pointer-events: all;
@@ -2363,7 +2364,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   border-radius: 14px;
   cursor: pointer;
   transition: all 0.15s ease;
-  opacity: 0.7;
+  opacity: 0.85;
 }
 .action-bar-btn:hover {
   opacity: 1;
