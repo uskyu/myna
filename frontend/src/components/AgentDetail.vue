@@ -93,6 +93,38 @@
         <h4>⚙️ 工具</h4>
         <div class="profile-list-item">run_command — 执行系统命令</div>
         <div class="profile-list-item">read_file — 读取文件内容</div>
+        <div class="profile-list-item">write_file — 写入文件</div>
+        <div class="profile-list-item">http_request — HTTP 请求</div>
+        <div class="profile-list-item">search_files — 搜索文件</div>
+        <div class="profile-list-item">install_package — 安装依赖包</div>
+      </div>
+
+      <!-- Execution & Self-improvement settings -->
+      <div class="profile-section">
+        <h4>🔐 权限与自我迭代</h4>
+        <div class="field-block">
+          <label>执行模式</label>
+          <select v-model="form.execution_mode" @change="saveField('execution_mode')" class="model-select">
+            <option value="auto">全自动 — 无安全限制，可接收密码直接操作</option>
+            <option value="confirm">需确认 — 危险命令被阻止</option>
+            <option value="readonly">只读 — 不能执行命令/写文件</option>
+          </select>
+          <div class="hint" style="margin-top:4px">
+            {{ form.execution_mode === 'auto' ? '⚡ 完全信任，可执行任何操作' : form.execution_mode === 'confirm' ? '🛡️ 危险命令（rm -rf、reboot等）被拦截' : '👁️ 只能读取信息，不能修改' }}
+          </div>
+        </div>
+        <div class="field-block" style="margin-top:12px">
+          <div class="toggle-row">
+            <label>自我迭代学习</label>
+            <button type="button" class="toggle" :class="{ on: form.self_improve }" @click="form.self_improve = !form.self_improve; saveField('self_improve')" aria-label="自我迭代开关"></button>
+          </div>
+          <div class="hint">开启后，智能体在工具调用后自动复盘并提取经验保存为技能</div>
+        </div>
+        <div v-if="form.self_improve" class="field-block" style="margin-top:8px">
+          <label>触发阈值（工具调用次数 ≥）</label>
+          <input type="number" v-model.number="form.self_improve_threshold" @blur="saveField('self_improve_threshold')" min="1" max="20" class="threshold-input">
+          <div class="hint">工具调用达到此次数后触发自动复盘（默认 2）</div>
+        </div>
       </div>
 
       <div style="margin-top:32px;padding-top:16px;border-top:1px solid var(--border)">
@@ -171,6 +203,9 @@ const form = reactive({
   description: props.agent.description || '',
   model_config_id: props.agent.model_config_id || '',
   status: props.agent.status || 'online',
+  execution_mode: props.agent.execution_mode || 'auto',
+  self_improve: props.agent.self_improve !== undefined ? !!props.agent.self_improve : true,
+  self_improve_threshold: props.agent.self_improve_threshold || 2,
 })
 
 const idx = computed(() => store.agents.findIndex(a => a.id === props.agent.id))
@@ -193,6 +228,9 @@ async function persist() {
       description: form.description,
       model_config_id: form.model_config_id || null,
       status: form.status,
+      execution_mode: form.execution_mode,
+      self_improve: form.self_improve,
+      self_improve_threshold: form.self_improve_threshold,
     })
     Object.assign(props.agent, {
       name: form.name,
@@ -642,4 +680,29 @@ onMounted(() => {
 }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-save:not(:disabled):hover { opacity: 0.9; }
+
+/* Toggle row for settings */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.toggle-row label {
+  margin-bottom: 0;
+}
+.threshold-input {
+  width: 80px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: center;
+}
+.threshold-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-glow);
+}
 </style>

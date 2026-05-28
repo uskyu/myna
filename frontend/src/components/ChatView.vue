@@ -60,7 +60,26 @@
             <!-- Text content (shown after tools or for non-tool messages) -->
             <div v-if="msg.streaming && !msg.text && msg.toolCalls && msg.toolCalls.length" class="msg-text working-placeholder"></div>
             <div v-else class="msg-text" v-html="msg.streaming ? (msg.rendered + '<span class=stream-cursor>▊</span>') : msg.rendered"></div>
-            <div class="msg-time">{{ msg.streaming ? (msg.working ? '思考中...' : '生成中...') : msg.time }}</div>
+            <div class="msg-meta-row">
+              <span class="msg-time">{{ msg.streaming ? (msg.working ? '思考中...' : '生成中...') : msg.time }}</span>
+              <!-- Message actions (edit/delete) — always visible for non-streaming -->
+              <span v-if="!msg.streaming && !String(msg.id).startsWith('tmp-')" class="msg-actions">
+                <button class="msg-action-btn" @click.stop="startEditMsg(msg)" title="编辑">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="msg-action-btn danger" @click.stop="deleteMsg(msg)" title="删除">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </span>
+            </div>
+            <!-- Inline edit textarea -->
+            <div v-if="editingMsgId === msg.id" class="msg-edit-box" @click.stop>
+              <textarea v-model="editingMsgText" rows="2" class="msg-edit-input" @keydown.enter.ctrl.prevent="saveEditMsg(msg)" @keydown.escape="cancelEditMsg"></textarea>
+              <div class="msg-edit-actions">
+                <button class="msg-edit-save" @click.stop="saveEditMsg(msg)">保存</button>
+                <button class="msg-edit-cancel" @click.stop="cancelEditMsg">取消</button>
+              </div>
+            </div>
             <!-- Stop button for streaming messages -->
             <button v-if="msg.streaming" class="stop-stream-btn" @click.stop="cancelStream(msg)">⏹ 停止</button>
           </div>
@@ -277,6 +296,7 @@ const TOOL_LABELS = {
   write_file: '写入文件',
   http_request: 'HTTP 请求',
   search_files: '搜索文件',
+  install_package: '安装依赖',
 }
 function toolLabel(name) { return TOOL_LABELS[name] || name }
 function toggleToolsExpand(msg) {
@@ -559,6 +579,38 @@ async function finishRenameThread(t) {
 }
 function cancelRenameThread() {
   renamingThreadId.value = null
+}
+
+// === Message edit/delete ===
+const editingMsgId = ref(null)
+const editingMsgText = ref('')
+
+function startEditMsg(msg) {
+  editingMsgId.value = msg.id
+  editingMsgText.value = msg.text
+}
+
+function cancelEditMsg() {
+  editingMsgId.value = null
+  editingMsgText.value = ''
+}
+
+async function saveEditMsg(msg) {
+  const newText = editingMsgText.value.trim()
+  if (!newText) return
+  await api('PATCH', `/admin/messages/${msg.id}`, { text: newText })
+  // Update local state
+  const found = messages.value.find(m => m.id === msg.id)
+  if (found) found.text = newText
+  editingMsgId.value = null
+  editingMsgText.value = ''
+  fetchMessages()
+}
+
+async function deleteMsg(msg) {
+  if (!confirm('确定删除这条消息？')) return
+  await api('DELETE', `/admin/messages/${msg.id}`)
+  messages.value = messages.value.filter(m => m.id !== msg.id)
 }
 
 // Auto-update thread title on first message

@@ -287,6 +287,14 @@ class SQLiteAdapter extends DatabaseAdapter {
     this.db.prepare(`DELETE FROM messages WHERE room_id = ?`).run(room_id);
   }
 
+  updateMessage(id, text) {
+    this.db.prepare(`UPDATE messages SET text = ? WHERE id = ?`).run(text, id);
+  }
+
+  deleteMessage(id) {
+    this.db.prepare(`DELETE FROM messages WHERE id = ?`).run(id);
+  }
+
   pushUpdate(agent_id, type, payload) {
     this.db.prepare(`INSERT INTO updates (agent_id, type, payload) VALUES (?, ?, ?)`)
       .run(agent_id, type, JSON.stringify(payload));

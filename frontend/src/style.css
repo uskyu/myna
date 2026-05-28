@@ -550,7 +550,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .msg-group { display: flex; flex-direction: column; gap: 2px; }
 .msg-group .msg:not(:first-child) { padding-top: 6px; }
 .msg-group .msg:not(:first-child) .sender-name { display: none; }
-.msg-group .msg:not(:last-child) .msg-time { display: none; }
+.msg-group .msg:not(:last-child) .msg-meta-row { display: none; }
 
 .msg {
   max-width: 78%;
@@ -596,6 +596,118 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   margin-top: 4px;
 }
 .msg-group.self .msg .msg-time { color: rgba(255, 255, 255, 0.7); }
+
+/* Message meta row (time + actions) */
+.msg-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.msg-meta-row .msg-time {
+  margin-top: 0;
+}
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg:hover .msg-actions {
+  opacity: 0.7;
+}
+.msg-actions:hover {
+  opacity: 1 !important;
+}
+.msg-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  transition: background 0.15s, color 0.15s;
+}
+.msg-action-btn:hover {
+  background: var(--surface2);
+  color: var(--text);
+}
+.msg-action-btn.danger:hover {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+}
+.msg-group.self .msg .msg-action-btn {
+  color: rgba(255, 255, 255, 0.6);
+}
+.msg-group.self .msg .msg-action-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+.msg-group.self .msg .msg-action-btn.danger:hover {
+  background: rgba(255, 100, 100, 0.2);
+  color: #fca5a5;
+}
+
+/* Message edit box */
+.msg-edit-box {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.msg-edit-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text);
+  resize: vertical;
+  min-height: 40px;
+  font-family: inherit;
+}
+.msg-edit-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.msg-group.self .msg .msg-edit-input {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+.msg-edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.msg-edit-save, .msg-edit-cancel {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+}
+.msg-edit-save {
+  background: var(--accent);
+  color: white;
+}
+.msg-edit-save:hover {
+  background: var(--accent-hover);
+}
+.msg-edit-cancel {
+  background: var(--surface2);
+  color: var(--text-dim);
+}
+.msg-edit-cancel:hover {
+  background: var(--border);
+}
+.msg-group.self .msg .msg-edit-save {
+  background: rgba(255, 255, 255, 0.25);
+}
+.msg-group.self .msg .msg-edit-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
 
 .msg .msg-text { white-space: normal; word-wrap: break-word; overflow-wrap: break-word; line-height: 1.6; overflow: hidden; }
 .msg .msg-text pre { overflow-x: auto; max-width: 100%; }

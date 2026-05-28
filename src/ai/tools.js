@@ -88,6 +88,21 @@ const TOOL_DEFINITIONS = [
         required: ['pattern']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'install_package',
+      description: '安装系统依赖包（npm/pip/apt）。智能体可以自主安装所需工具。',
+      parameters: {
+        type: 'object',
+        properties: {
+          manager: { type: 'string', enum: ['npm', 'pip', 'apt'], description: '包管理器' },
+          packages: { type: 'string', description: '要安装的包名，多个用空格分隔' }
+        },
+        required: ['manager', 'packages']
+      }
+    }
   }
 ];
 
@@ -226,6 +241,29 @@ const executors = {
       if (e.stdout) return { ok: true, output: (e.stdout || '(无匹配结果)').slice(0, 4000) };
       return { ok: false, output: `搜索错误: ${e.message}` };
     }
+  },
+
+  install_package(args, opts = {}) {
+    const manager = args.manager || 'npm';
+    const packages = args.packages || '';
+    if (!packages.trim()) return { ok: false, output: '未指定包名' };
+    // Only allow in auto mode
+    if (opts.executionMode !== 'auto') {
+      return { ok: false, output: '⚠️ 安装包需要「全自动」模式权限' };
+    }
+    let cmd;
+    switch (manager) {
+      case 'npm': cmd = `npm install -g ${packages}`; break;
+      case 'pip': cmd = `pip install ${packages}`; break;
+      case 'apt': cmd = `apt-get install -y ${packages}`; break;
+      default: return { ok: false, output: `不支持的包管理器: ${manager}` };
+    }
+    try {
+      const output = execSync(cmd, { timeout: 120000, maxBuffer: 200 * 1024, encoding: 'utf8' });
+      return { ok: true, output: `✅ 安装成功\n${(output || '').slice(0, 2000)}` };
+    } catch (e) {
+      return { ok: false, output: `安装失败: ${(e.stderr || e.message || '').slice(0, 2000)}` };
+    }
   }
 };
 
@@ -259,6 +297,8 @@ function toolCallSummary(name, args) {
       return `${args.method || 'GET'} ${args.url || ''}`.slice(0, 80);
     case 'search_files':
       return `${args.target || 'content'}: ${args.pattern || ''}`;
+    case 'install_package':
+      return `${args.manager} install ${args.packages || ''}`;
     default:
       return JSON.stringify(args).slice(0, 60);
   }

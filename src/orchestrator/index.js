@@ -162,6 +162,24 @@ router.delete('/rooms/:id/messages', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Update message text
+router.patch('/messages/:id', async (req, res) => {
+  const db = getDatabase();
+  const { text } = req.body;
+  if (!text) {
+    return res.status(400).json({ ok: false, error: 'text is required' });
+  }
+  await db.updateMessage(req.params.id, text);
+  res.json({ ok: true });
+});
+
+// Delete a single message
+router.delete('/messages/:id', async (req, res) => {
+  const db = getDatabase();
+  await db.deleteMessage(req.params.id);
+  res.json({ ok: true });
+});
+
 // Send message (user sends) — triggers AI reply
 router.post('/rooms/:id/send', async (req, res) => {
   const db = getDatabase();
