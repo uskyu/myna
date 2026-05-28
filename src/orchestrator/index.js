@@ -50,7 +50,7 @@ router.post('/agents', async (req, res) => {
 
 router.put('/agents/:id', async (req, res) => {
   const db = getDatabase();
-  const { name, description, status, sort_order, model_config_id } = req.body;
+  const { name, description, status, sort_order, model_config_id, execution_mode, self_improve, self_improve_threshold, tools_config } = req.body;
   if (!name) {
     return res.status(400).json({ ok: false, error: 'name is required' });
   }
@@ -58,6 +58,10 @@ router.put('/agents/:id', async (req, res) => {
   if (status !== undefined) fields.status = status;
   if (sort_order !== undefined) fields.sort_order = sort_order;
   if (model_config_id !== undefined) fields.model_config_id = model_config_id;
+  if (execution_mode !== undefined) fields.execution_mode = execution_mode;
+  if (self_improve !== undefined) fields.self_improve = self_improve ? 1 : 0;
+  if (self_improve_threshold !== undefined) fields.self_improve_threshold = self_improve_threshold;
+  if (tools_config !== undefined) fields.tools_config = typeof tools_config === 'string' ? tools_config : JSON.stringify(tools_config);
   await db.updateAgent(req.params.id, fields);
   res.json({ ok: true });
 });

@@ -116,10 +116,13 @@ const SENSITIVE_PATHS = ['/etc/shadow', '/root/.ssh/id_rsa', '/proc/self'];
 
 // Tool executors
 const executors = {
-  run_command(args) {
+  run_command(args, opts = {}) {
     const cmd = args.command || '';
-    if (BLOCKED_PATTERNS.some(p => p.test(cmd))) {
-      return { ok: false, output: '⚠️ 该命令被安全策略阻止' };
+    // In 'auto' mode with no safety restrictions, skip blocklist
+    if (opts.executionMode !== 'auto') {
+      if (BLOCKED_PATTERNS.some(p => p.test(cmd))) {
+        return { ok: false, output: '⚠️ 该命令被安全策略阻止。如需执行，请将智能体设为「全自动」模式。' };
+      }
     }
     try {
       const output = execSync(cmd, { timeout: 30000, maxBuffer: 100 * 1024, encoding: 'utf8' });
@@ -230,11 +233,11 @@ const executors = {
  * Execute a tool by name.
  * @returns {Promise<{ok: boolean, output: string}>}
  */
-async function executeTool(name, args) {
+async function executeTool(name, args, opts = {}) {
   const executor = executors[name];
   if (!executor) return { ok: false, output: `未知工具: ${name}` };
   try {
-    const result = await executor(args);
+    const result = await executor(args, opts);
     return result;
   } catch (e) {
     return { ok: false, output: `工具执行异常: ${e.message}`.slice(0, 1000) };

@@ -111,7 +111,7 @@ async function streamChatCompletion(config, messages, model, onToken) {
  * @param {number} maxRounds - max tool call rounds
  * @returns {{ finalText: string|null, messages: Array }}
  */
-async function toolUseLoop(config, messages, model, onToolCall, onToolResult, maxRounds = 8) {
+async function toolUseLoop(config, messages, model, onToolCall, onToolResult, maxRounds = 8, executionMode = 'auto') {
   let currentMessages = [...messages];
 
   for (let round = 0; round < maxRounds; round++) {
@@ -168,8 +168,13 @@ async function toolUseLoop(config, messages, model, onToolCall, onToolResult, ma
       // Emit tool_call event
       if (onToolCall) onToolCall({ name: fnName, args: fnArgs, summary });
 
-      // Execute tool
-      const result = await executeTool(fnName, fnArgs);
+      // Check execution mode restrictions
+      let result;
+      if (executionMode === 'readonly' && ['run_command', 'write_file', 'http_request'].includes(fnName)) {
+        result = { ok: false, output: '⚠️ 当前智能体为只读模式，不允许执行写入/命令操作。请联系管理员调整权限。' };
+      } else {
+        result = await executeTool(fnName, fnArgs, { executionMode });
+      }
 
       // Emit tool_result event
       if (onToolResult) onToolResult({ name: fnName, ok: result.ok, output: result.output });
@@ -238,8 +243,9 @@ async function chatCompletion(agent, history, callbacks = {}, modelConfig = null
   ];
 
   // Phase 1: Tool use loop (non-streaming, with event callbacks)
+  const executionMode = agent.execution_mode || 'auto';
   const { finalText, messages: updatedMessages } = await toolUseLoop(
-    config, messages, config.model, onToolCall, onToolResult
+    config, messages, config.model, onToolCall, onToolResult, 8, executionMode
   );
 
   // If tool loop returned text directly (no tools used, simple reply)
@@ -525,7 +531,7 @@ async function processMessage(db, wsManager, roomId, senderId, text, mentions = 
     }
 
     // Self-improvement review: extract learnings after tool-heavy conversations
-    if (collectedToolCalls.length >= 2 && chainDepth === 0) {
+    if (collectedToolCalls.length >= (fullAgent.self_improve_threshold || 2) && chainDepth === 0 && fullAgent.self_improve !== 0) {
       selfImprovementReview(db, wsManager, roomId, threadId, agent, history, reply, collectedToolCalls, modelConfig).catch(err => {
         console.error('[AI] Self-improvement review failed:', err.message);
       });

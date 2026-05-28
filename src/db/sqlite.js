@@ -97,6 +97,11 @@ class SQLiteAdapter extends DatabaseAdapter {
     } catch (e) {
       // Column already exists, ignore
     }
+    // Agent config fields: execution_mode, self_improve, tools_config
+    try { this.db.prepare(`ALTER TABLE agents ADD COLUMN execution_mode TEXT DEFAULT 'auto'`).run(); } catch(e) {}
+    try { this.db.prepare(`ALTER TABLE agents ADD COLUMN self_improve INTEGER DEFAULT 1`).run(); } catch(e) {}
+    try { this.db.prepare(`ALTER TABLE agents ADD COLUMN self_improve_threshold INTEGER DEFAULT 2`).run(); } catch(e) {}
+    try { this.db.prepare(`ALTER TABLE agents ADD COLUMN tools_config TEXT DEFAULT NULL`).run(); } catch(e) {}
     // Add settings_json column to rooms if not exists
     try { this.db.prepare(`ALTER TABLE rooms ADD COLUMN settings_json TEXT DEFAULT '{}'`).run(); } catch(e) {}
 
@@ -176,7 +181,7 @@ class SQLiteAdapter extends DatabaseAdapter {
   }
 
   listAgents() {
-    return this.db.prepare(`SELECT id, name, description, avatar, status, container_id, model_config_id, created_at FROM agents`).all();
+    return this.db.prepare(`SELECT id, name, description, avatar, status, container_id, model_config_id, execution_mode, self_improve, self_improve_threshold, tools_config, created_at FROM agents`).all();
   }
 
   updateAgentStatus(id, status) {
@@ -316,6 +321,10 @@ class SQLiteAdapter extends DatabaseAdapter {
     if (fields.status !== undefined) { sets.push('status = ?'); vals.push(fields.status); }
     if (fields.model_config_id !== undefined) { sets.push('model_config_id = ?'); vals.push(fields.model_config_id || null); }
     if (fields.sort_order !== undefined) { sets.push('container_id = ?'); vals.push(String(fields.sort_order)); }
+    if (fields.execution_mode !== undefined) { sets.push('execution_mode = ?'); vals.push(fields.execution_mode); }
+    if (fields.self_improve !== undefined) { sets.push('self_improve = ?'); vals.push(fields.self_improve); }
+    if (fields.self_improve_threshold !== undefined) { sets.push('self_improve_threshold = ?'); vals.push(fields.self_improve_threshold); }
+    if (fields.tools_config !== undefined) { sets.push('tools_config = ?'); vals.push(fields.tools_config); }
     if (sets.length === 0) return;
     sets.push("updated_at = datetime('now')");
     vals.push(id);
