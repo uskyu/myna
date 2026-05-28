@@ -18,6 +18,7 @@ sys.path.insert(0, str(HERMES_PATH))
 
 try:
     from run_agent import AIAgent
+    from hermes_constants import set_hermes_home_override, reset_hermes_home_override
     HERMES_AVAILABLE = True
 except ImportError:
     HERMES_AVAILABLE = False
@@ -25,6 +26,21 @@ except ImportError:
 
 # Thread pool for running sync Hermes Agent calls
 _executor = ThreadPoolExecutor(max_workers=4)
+
+# Hub profiles root — each agent gets its own isolated profile
+HUB_PROFILES_ROOT = Path("/root/.hermes/profiles")
+
+
+def get_agent_profile_dir(agent_id: str) -> Path:
+    """Get or create an isolated Hermes profile directory for a hub agent."""
+    profile_dir = HUB_PROFILES_ROOT / f"hub-{agent_id[:12]}"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure subdirectories exist
+    (profile_dir / "memory").mkdir(exist_ok=True)
+    (profile_dir / "skills").mkdir(exist_ok=True)
+    (profile_dir / "sessions").mkdir(exist_ok=True)
+    (profile_dir / "logs").mkdir(exist_ok=True)
+    return profile_dir
 
 
 def get_hermes_config():
@@ -167,26 +183,33 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                 pass  # We get the full text at the end
 
             def _run_hermes_sync():
-                agent_instance = AIAgent(
-                    base_url=base_url,
-                    api_key=api_key,
-                    api_mode=api_mode,
-                    model=model,
-                    max_iterations=15,
-                    quiet_mode=True,
-                    platform="hermes-hub",
-                    skip_context_files=True,
-                    skip_memory=False,
-                    tool_start_callback=_tool_start,
-                    tool_complete_callback=_tool_complete,
-                    stream_delta_callback=_stream_delta,
-                )
-                result = agent_instance.run_conversation(
-                    user_message=history[-1]["content"] if history else "",
-                    system_message=system_prompt,
-                    conversation_history=history[:-1] if len(history) > 1 else None,
-                )
-                return result.get("final_response", "") if isinstance(result, dict) else str(result)
+                # Isolate this agent's profile — each hub agent gets its own
+                # memory, skills, sessions directory
+                profile_dir = get_agent_profile_dir(agent.get("id", "default"))
+                token = set_hermes_home_override(str(profile_dir))
+                try:
+                    agent_instance = AIAgent(
+                        base_url=base_url,
+                        api_key=api_key,
+                        api_mode=api_mode,
+                        model=model,
+                        max_iterations=15,
+                        quiet_mode=True,
+                        platform="hermes-hub",
+                        skip_context_files=True,
+                        skip_memory=False,
+                        tool_start_callback=_tool_start,
+                        tool_complete_callback=_tool_complete,
+                        stream_delta_callback=_stream_delta,
+                    )
+                    result = agent_instance.run_conversation(
+                        user_message=history[-1]["content"] if history else "",
+                        system_message=system_prompt,
+                        conversation_history=history[:-1] if len(history) > 1 else None,
+                    )
+                    return result.get("final_response", "") if isinstance(result, dict) else str(result)
+                finally:
+                    reset_hermes_home_override(token)
 
             final_text = await loop.run_in_executor(_executor, _run_hermes_sync)
 
