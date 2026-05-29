@@ -76,36 +76,39 @@ export const updateInfo = reactive({
   checked: false,
   isDocker: false,
   updating: false,
+  checking: false,
+  error: '',
 })
 
 export async function checkForUpdate() {
+  updateInfo.checking = true
+  updateInfo.error = ''
   try {
-    // Get current version from backend
     const token = localStorage.getItem('hub_auth_token')
-    const sysRes = await fetch('/admin/system/version', {
+    const res = await fetch('/admin/system/check-update', {
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     })
-    if (sysRes.ok) {
-      const sysData = await sysRes.json()
-      updateInfo.currentVersion = sysData.version
-      updateInfo.isDocker = sysData.docker
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      updateInfo.error = err.error || `检查失败 (${res.status})`
+      updateInfo.checked = true
+      return
     }
-
-    // Check GitHub for latest
-    const res = await fetch('https://api.github.com/repos/uskyu/myna/releases/latest')
-    if (!res.ok) return
     const data = await res.json()
-    const remote = (data.tag_name || '').replace(/^v/, '')
-    const current = (updateInfo.currentVersion || '0.3.0').replace(/^v/, '')
-    if (remote && remote !== current) {
+    updateInfo.currentVersion = data.current
+    updateInfo.isDocker = data.docker
+    if (data.available) {
       updateInfo.available = true
-      updateInfo.latestVersion = 'v' + remote
+      updateInfo.latestVersion = 'v' + data.latest
     } else {
       updateInfo.available = false
     }
     updateInfo.checked = true
-  } catch {
-    // Silent fail
+  } catch (e) {
+    updateInfo.checked = true
+    updateInfo.error = '网络错误'
+  } finally {
+    updateInfo.checking = false
   }
 }
 

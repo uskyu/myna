@@ -78,7 +78,8 @@
         <div v-else class="setting-item" @click="doCheckUpdate" style="cursor:pointer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
           <span class="setting-label">检查更新</span>
-          <span v-if="checkingUpdate" class="setting-value">检查中...</span>
+          <span v-if="updateInfo.checking" class="setting-value">检查中...</span>
+          <span v-else-if="updateInfo.error" class="setting-value" style="color:var(--danger,#e53e3e)">{{ updateInfo.error }}</span>
           <span v-else-if="updateInfo.checked" class="setting-value" style="color:var(--accent,#2d6a4f)">已是最新</span>
         </div>
         <a class="setting-item" href="https://github.com/uskyu/myna" target="_blank" style="text-decoration:none;color:inherit">
@@ -133,7 +134,6 @@ const newPwd = ref('')
 const confirmPwd = ref('')
 const pwdError = ref('')
 const pwdSuccess = ref('')
-const checkingUpdate = ref(false)
 
 function toggleTheme() {
   isDark.value = !isDark.value
@@ -180,9 +180,7 @@ function doLogout() {
 }
 
 async function doCheckUpdate() {
-  checkingUpdate.value = true
   await checkForUpdate()
-  checkingUpdate.value = false
 }
 
 async function handleUpdate() {

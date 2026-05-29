@@ -851,6 +851,43 @@ async def get_system_version():
     return {"ok": True, "version": MYNA_VERSION, "docker": in_docker}
 
 
+# Cache for update check (avoid hammering GitHub API)
+_update_cache = {"latest": None, "checked_at": 0}
+
+@router.get("/system/check-update")
+async def check_for_update():
+    """Check GitHub for latest release. Server-side with caching (60s)."""
+    import time, httpx
+    now = time.time()
+    # Return cached result if checked within 60s
+    if _update_cache["latest"] and (now - _update_cache["checked_at"]) < 60:
+        remote = _update_cache["latest"]
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get("https://api.github.com/repos/uskyu/myna/releases/latest")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    remote = (data.get("tag_name") or "").lstrip("v")
+                    _update_cache["latest"] = remote
+                    _update_cache["checked_at"] = now
+                else:
+                    return JSONResponse({"ok": False, "error": f"GitHub API returned {resp.status_code}"}, status_code=502)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": f"请求超时或网络错误: {type(e).__name__}"}, status_code=502)
+
+    in_docker = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+    current = MYNA_VERSION.lstrip("v")
+    available = bool(remote and remote != current)
+    return {
+        "ok": True,
+        "current": current,
+        "latest": remote,
+        "available": available,
+        "docker": in_docker,
+    }
+
+
 @router.post("/system/update")
 async def do_system_update(request: Request):
     """Pull latest Docker image and recreate container. Only works in Docker mode."""
