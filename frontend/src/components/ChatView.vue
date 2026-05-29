@@ -61,7 +61,7 @@
             <div v-if="msg.streaming && !msg.text && msg.toolCalls && msg.toolCalls.length" class="msg-text working-placeholder"></div>
             <div v-else class="msg-text" v-html="msg.streaming ? (msg.rendered + '<span class=stream-cursor>▊</span>') : msg.rendered"></div>
             <div class="msg-meta-row">
-              <span class="msg-time">{{ msg.streaming ? (msg.working ? '思考中...' : '生成中...') : msg.time }}</span>
+              <span class="msg-time">{{ msg.streaming ? (msg.text ? '生成中...' : '思考中...') : msg.time }}</span>
               <!-- Message actions (edit/delete/mention/retry) — always visible for non-streaming -->
               <span v-if="!msg.streaming && !String(msg.id).startsWith('tmp-')" class="msg-actions">
                 <button class="msg-action-btn danger" @click.stop="deleteMsg(msg)" title="删除">
@@ -281,6 +281,7 @@
         placeholder="输入消息..."
         v-model="inputText"
         @keydown.enter.exact.prevent="onEnterKey"
+        @keydown.enter.shift.prevent="onShiftEnter"
         @keydown.down.prevent="moveMention(1)"
         @keydown.up.prevent="moveMention(-1)"
         @keydown.tab.prevent="onTab"
@@ -938,12 +939,28 @@ function closeMentions() {
   mentionStartPos.value = -1
 }
 
+const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+
 function onEnterKey() {
   if (showMentions.value && mentionCandidates.value[mentionIndex.value]) {
     selectMention(mentionCandidates.value[mentionIndex.value])
     return
   }
-  // Enter = newline (insert \n at cursor position)
+  if (isMobile) {
+    // Mobile: Enter = newline
+    insertNewline()
+  } else {
+    // Desktop: Enter = send
+    send()
+  }
+}
+
+function onShiftEnter() {
+  // Desktop: Shift+Enter = newline (mobile won't trigger this)
+  insertNewline()
+}
+
+function insertNewline() {
   const el = inputEl.value
   if (!el) return
   const start = el.selectionStart

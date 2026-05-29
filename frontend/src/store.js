@@ -253,7 +253,8 @@ function _globalWSHandler(msg) {
   } else if (msg.type === 'stream_token') {
     const stream = store.activeStreams[msg.stream_id]
     if (stream) {
-      stream.working = false
+      // Don't set working=false here — tools may still be running
+      // working is only cleared on stream_end
       stream.text += msg.chunk
       store.activeStreams = { ...store.activeStreams }
     }

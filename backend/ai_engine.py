@@ -394,7 +394,12 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     )
 
             def _stream_delta(delta):
-                pass  # We get the full text at the end
+                # Stream intermediate text tokens to UI in real-time
+                if on_token and delta:
+                    asyncio.run_coroutine_threadsafe(
+                        on_token(delta),
+                        loop
+                    )
 
             def _run_hermes_sync():
                 # Isolate this agent's profile — each hub agent gets its own
