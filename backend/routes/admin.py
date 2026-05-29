@@ -926,37 +926,59 @@ async def do_system_update(request: Request):
         if pull_result.returncode != 0:
             return JSONResponse({"ok": False, "error": f"Pull failed: {pull_result.stderr[:500]}"}, status_code=500)
 
-        # Get own container ID
-        container_id = ""
-        if os.path.exists("/proc/self/cgroup"):
-            with open("/proc/self/cgroup") as f:
-                for line in f:
-                    if "docker" in line or "containerd" in line:
-                        container_id = line.strip().split("/")[-1][:12]
-                        break
-        if not container_id:
-            # Try hostname (Docker sets it to container short ID)
+        # Strategy 1: Use mounted docker-compose.yml path directly
+        compose_file = "/app/docker-compose.yml"
+        if os.path.exists(compose_file):
+            # Read compose to find the working dir (the file is bind-mounted from host)
+            # The compose file is at host_path/docker-compose.yml, mounted as /app/docker-compose.yml:ro
+            # We need the host path — get it from mount info
             import socket
-            container_id = socket.gethostname()
+            container_id = ""
 
-        # Use docker inspect to find compose project and service
-        inspect = subprocess.run(
-            ["docker", "inspect", "--format",
-             '{{index .Config.Labels "com.docker.compose.project.working_dir"}}|{{index .Config.Labels "com.docker.compose.service"}}',
-             container_id],
-            capture_output=True, text=True, timeout=10
-        )
-        if inspect.returncode == 0 and "|" in inspect.stdout.strip():
-            workdir, service = inspect.stdout.strip().split("|", 1)
-            # Recreate just this service in background (will kill us, that's fine)
-            subprocess.Popen(
-                ["docker", "compose", "-f", f"{workdir}/docker-compose.yml",
-                 "up", "-d", "--force-recreate", "--no-deps", service],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            # Try container name from environment or hostname
+            # In network_mode:host, hostname = host's hostname, not container ID
+            # So we find ourselves by container name label
+            ps_result = subprocess.run(
+                ["docker", "ps", "--filter", "label=com.docker.compose.service=myna",
+                 "--format", "{{.ID}}"],
+                capture_output=True, text=True, timeout=10
             )
-            return {"ok": True, "message": "Updating... page will reload in a few seconds."}
+            if ps_result.returncode == 0 and ps_result.stdout.strip():
+                container_id = ps_result.stdout.strip().split("\n")[0]
+            else:
+                # Fallback: find by image name
+                ps_result = subprocess.run(
+                    ["docker", "ps", "--filter", "ancestor=ghcr.io/uskyu/myna:latest",
+                     "--format", "{{.ID}}"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if ps_result.returncode == 0 and ps_result.stdout.strip():
+                    container_id = ps_result.stdout.strip().split("\n")[0]
+
+            if not container_id:
+                # Last resort: try hostname (works when not network_mode:host)
+                container_id = socket.gethostname()
+
+            # Get compose working dir from container labels
+            inspect = subprocess.run(
+                ["docker", "inspect", "--format",
+                 '{{index .Config.Labels "com.docker.compose.project.working_dir"}}|{{index .Config.Labels "com.docker.compose.service"}}',
+                 container_id],
+                capture_output=True, text=True, timeout=10
+            )
+            if inspect.returncode == 0 and "|" in inspect.stdout.strip():
+                workdir, service = inspect.stdout.strip().split("|", 1)
+                # Recreate just this service in background (will kill us, that's fine)
+                subprocess.Popen(
+                    ["docker", "compose", "-f", f"{workdir}/docker-compose.yml",
+                     "up", "-d", "--force-recreate", "--no-deps", service],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                return {"ok": True, "message": "Updating... page will reload in a few seconds."}
+            else:
+                return JSONResponse({"ok": False, "error": "Cannot detect compose project. Run manually: docker compose pull && docker compose up -d"}, status_code=500)
         else:
-            return JSONResponse({"ok": False, "error": "Cannot detect compose project. Run manually: docker compose pull && docker compose up -d"}, status_code=500)
+            return JSONResponse({"ok": False, "error": "docker-compose.yml not found at /app/docker-compose.yml"}, status_code=500)
     except subprocess.TimeoutExpired:
         return JSONResponse({"ok": False, "error": "Pull timed out"}, status_code=500)
     except Exception as e:
