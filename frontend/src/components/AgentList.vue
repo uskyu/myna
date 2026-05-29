@@ -132,8 +132,8 @@ onMounted(loadAgents)
 
 .agent-name {
   font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary, #e2e8f0);
+  font-weight: 600;
+  color: var(--text);
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -144,7 +144,7 @@ onMounted(loadAgents)
 
 .agent-desc {
   font-size: 12px;
-  color: var(--text-secondary, #94a3b8);
+  color: var(--text-2);
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 1;

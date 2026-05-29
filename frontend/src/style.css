@@ -1266,7 +1266,7 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 .agent-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  color: #1a1916;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

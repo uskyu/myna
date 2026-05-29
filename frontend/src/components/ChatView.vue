@@ -887,7 +887,7 @@ async function onPaste(e) {
   if (!files.length) return
   // Prevent default paste of image as text
   e.preventDefault()
-  const token = localStorage.getItem('myna_token')
+  const token = localStorage.getItem('hub_auth_token')
   for (const f of files) {
     const fd = new FormData()
     fd.append('file', f, f.name || `paste-${Date.now()}.${f.type.split('/')[1] || 'png'}`)
@@ -909,7 +909,7 @@ async function onPaste(e) {
 
 async function onFiles(e) {
   const files = Array.from(e.target.files || [])
-  const token = localStorage.getItem('myna_token')
+  const token = localStorage.getItem('hub_auth_token')
   for (const f of files) {
     const fd = new FormData()
     fd.append('file', f)

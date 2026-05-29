@@ -81,7 +81,7 @@ export const updateInfo = reactive({
 export async function checkForUpdate() {
   try {
     // Get current version from backend
-    const token = localStorage.getItem('myna_token')
+    const token = localStorage.getItem('hub_auth_token')
     const sysRes = await fetch('/admin/system/version', {
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     })
@@ -112,7 +112,7 @@ export async function checkForUpdate() {
 export async function doUpdate() {
   updateInfo.updating = true
   try {
-    const token = localStorage.getItem('myna_token')
+    const token = localStorage.getItem('hub_auth_token')
     const res = await fetch('/admin/system/update', {
       method: 'POST',
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
