@@ -31,7 +31,7 @@ Myna 的核心不是"又一个 ChatGPT 套壳"——而是**多个 AI 智能体�
 
 | 链式协作：开发 → 测试 → 修复 | 自主进化：自动提取技能 |
 |:---:|:---:|
-| ![链式协作](docs/screenshots/chain-workflow.jpg) | ![自主进化](docs/screenshots/self-improve.png) |
+| ![链式协作](docs/screenshots/chain-workflow.jpg) | ![自主进化](docs/screenshots/self-improve.jpg) |
 
 | 链式对话触发 | 管理中心 |
 |:---:|:---:|
