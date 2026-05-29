@@ -25,6 +25,7 @@ from routes.gateway import router as gateway_router
 from routes.upload import router as upload_router
 from routes.auth import router as auth_router, is_authenticated, ensure_password_initialized
 from routes.system_agent import router as system_agent_router
+from routes.system import router as system_router
 from workflow_engine import WorkflowRunner, WorkflowScheduler
 from credentials import CredentialStore
 from system_agent import SystemAgent
@@ -89,11 +90,34 @@ async def lifespan(app: FastAPI):
                 print(f"[WS] Stream cleanup error: {e}")
 
     cleanup_task = asyncio.create_task(_stream_cleanup_loop())
+    
+    # Start update check task (Docker mode only)
+    async def _update_check_loop():
+        from routes.system import check_system_update
+        IS_DOCKER = os.path.exists("/.dockerenv")
+        if not IS_DOCKER:
+            return
+        
+        while True:
+            await asyncio.sleep(600)  # Check every 10 minutes
+            try:
+                result = await check_system_update()
+                if result.get("has_update"):
+                    await ws_manager.notify_ui({
+                        "type": "update_available",
+                        "local_version": result.get("local_version"),
+                        "remote_version": result.get("remote_version")
+                    })
+            except Exception as e:
+                print(f"[UPDATE] Check error: {e}")
+    
+    update_check_task = asyncio.create_task(_update_check_loop())
 
     yield
     
     # Shutdown
     cleanup_task.cancel()
+    update_check_task.cancel()
     workflow_scheduler.stop()
     db.close()
 
@@ -112,6 +136,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
 app.include_router(system_agent_router, prefix="/admin/system-agent")
+app.include_router(system_router)
 app.include_router(gateway_router)
 app.include_router(upload_router)
 
@@ -139,6 +164,7 @@ class AuthMiddleware:
             path.startswith("/assets/") or
             path.startswith("/admin/media/") or
             path == "/admin/system/version" or
+            path == "/api/system/version" or
             path.startswith("/uploads/") or
             path.endswith(".js") or path.endswith(".css") or
             path.endswith(".ico") or path.endswith(".png") or

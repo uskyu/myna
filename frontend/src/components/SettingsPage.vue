@@ -122,6 +122,21 @@
         </form>
       </div>
     </div>
+
+    <!-- Update confirmation modal -->
+    <div v-if="showUpdateConfirm" class="modal-overlay" @click.self="showUpdateConfirm = false">
+      <div class="modal-card">
+        <h3>发现新版本</h3>
+        <div class="update-confirm-content">
+          <p>检测到新版本 <strong style="color:var(--accent,#2d6a4f)">{{ updateInfo.latestVersion }}</strong></p>
+          <p style="color:var(--text-secondary,#666);font-size:0.9em;margin-top:0.5em">更新过程中容器将重启，正在进行的对话会中断。建议在空闲时更新。</p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" @click="showUpdateConfirm = false">稍后</button>
+          <button type="button" class="btn-confirm" @click="confirmUpdate">立即更新</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -133,6 +148,7 @@ import ModelsModal from './ModelsModal.vue'
 const isDark = ref(false)
 const showModels = ref(false)
 const showChangePwd = ref(false)
+const showUpdateConfirm = ref(false)
 const models = ref([])
 const perfSettings = reactive({ agent_concurrency: 10, agent_max_rounds: 50, context_messages_limit: 20 })
 
@@ -192,7 +208,11 @@ async function doCheckUpdate() {
 
 async function handleUpdate() {
   if (updateInfo.updating) return
-  if (!confirm(`确认更新到 ${updateInfo.latestVersion}？容器将重启。`)) return
+  showUpdateConfirm.value = true
+}
+
+async function confirmUpdate() {
+  showUpdateConfirm.value = false
   await doUpdate()
 }
 
@@ -227,6 +247,18 @@ onMounted(async () => {
   isDark.value = localStorage.getItem('hub-theme') === 'dark'
   await loadModels()
   await loadPerfSettings()
+  
+  // Listen for update_available events from backend
+  const { ws } = await import('../store.js')
+  const updateHandler = (msg) => {
+    if (msg.type === 'update_available' && updateInfo.isDocker) {
+      showUpdateConfirm.value = true
+    }
+  }
+  ws.onMessage(updateHandler)
+  
+  // Cleanup on unmount
+  return () => ws.offMessage(updateHandler)
 })
 </script>
 

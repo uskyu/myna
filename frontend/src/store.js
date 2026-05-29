@@ -124,16 +124,16 @@ export async function doUpdate() {
   updateInfo.error = ''
   try {
     const token = localStorage.getItem('hub_auth_token')
-    const res = await fetch('/admin/system/update', {
+    const res = await fetch('/api/system/update', {
       method: 'POST',
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     })
     const data = await res.json()
-    if (!data.ok) {
+    if (!data.success) {
       updateInfo.updating = false
       updateInfo.stage = 'error'
-      updateInfo.message = data.error || '更新失败'
-      alert('更新失败: ' + (data.error || '未知错误'))
+      updateInfo.message = data.message || '更新失败'
+      alert('更新失败: ' + (data.message || '未知错误'))
     }
     // Progress will be pushed via WebSocket (update_progress events)
   } catch (e) {
@@ -264,15 +264,21 @@ function _globalWSHandler(msg) {
     if (msg.room_id && msg.room_id !== currentRoomId.value) {
       store.unreadCounts[msg.room_id] = (store.unreadCounts[msg.room_id] || 0) + 1
     }
+  } else if (msg.type === 'update_available') {
+    // Backend detected a new version
+    updateInfo.available = true
+    updateInfo.currentVersion = msg.local_version || ''
+    updateInfo.latestVersion = msg.remote_version || ''
+    updateInfo.checked = true
   } else if (msg.type === 'update_progress') {
     // Real-time update progress from backend
-    updateInfo.stage = msg.stage || ''
+    updateInfo.stage = msg.status || ''
     updateInfo.message = msg.message || ''
-    updateInfo.percent = msg.percent || 0
-    if (msg.stage === 'error') {
+    updateInfo.percent = msg.progress || 0
+    if (msg.status === 'error') {
       updateInfo.updating = false
       updateInfo.error = msg.message
-    } else if (msg.stage === 'restarting') {
+    } else if (msg.status === 'completed') {
       // Server will restart — poll until it comes back
       let attempts = 0
       const poll = setInterval(async () => {
@@ -284,7 +290,7 @@ function _globalWSHandler(msg) {
         }
         try {
           const token = localStorage.getItem('hub_auth_token')
-          const r = await fetch('/admin/system/check-update', {
+          const r = await fetch('/api/system/version', {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           })
           if (r.ok) {
