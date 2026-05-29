@@ -857,22 +857,6 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
                 except:
                     pass
 
-        # Auto-compress history if context is getting full
-        # Get model context limit from config (default 128k for Claude)
-        model_config_temp = get_model_config_for_agent(db, full_agent)
-        model_context_limit = 128000  # Default for Claude Opus/Sonnet
-        if model_config_temp:
-            # Try to infer from model name
-            model_name = model_config_temp.get("model", "").lower()
-            if "gpt-4" in model_name:
-                model_context_limit = 128000
-            elif "gpt-3.5" in model_name:
-                model_context_limit = 16000
-            elif "claude" in model_name:
-                model_context_limit = 200000  # Claude 3.5 Sonnet has 200k
-        
-        history = _compress_history(history, keep_recent=5, model_context_limit=model_context_limit)
-
         # If last agent message was interrupted, inject continuation context
         if last_interrupted_context and history:
             tool_summary = "\n".join([f"  - {t['name']}: {t.get('summary', '')} → {t['status']}" for t in last_interrupted_context])
@@ -953,6 +937,20 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         # Register cancellation event for this stream
         cancel_event = ws_manager.register_stream_cancel(stream_id)
+
+        # Auto-compress history if context is getting full
+        # Infer model context limit from model name
+        model_context_limit = 128000  # Default for Claude Opus/Sonnet
+        if model_config:
+            model_name = model_config.get("model", "").lower()
+            if "gpt-4" in model_name:
+                model_context_limit = 128000
+            elif "gpt-3.5" in model_name:
+                model_context_limit = 16000
+            elif "claude" in model_name:
+                model_context_limit = 200000  # Claude 3.5 Sonnet has 200k
+        
+        history = _compress_history(history, keep_recent=5, model_context_limit=model_context_limit)
 
         try:
             reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks, cancel_event)
