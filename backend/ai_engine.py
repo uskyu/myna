@@ -481,6 +481,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     )
 
             def _run_hermes_sync():
+                nonlocal system_prompt  # Allow modifying the outer system_prompt
                 # Isolate this agent's profile — each hub agent gets its own
                 # memory, skills, sessions directory
                 profile_dir = get_agent_profile_dir(agent.get("id", "default"))
@@ -993,12 +994,12 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         # Check if cancelled
         is_interrupted = cancel_event.is_set()
 
-        await ws_manager.notify_ui({"type": "stream_end", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "interrupted": is_interrupted})
-
         # Give async callbacks time to complete (they're scheduled via run_coroutine_threadsafe)
         await asyncio.sleep(0.5)
 
         if not reply and not collected_tool_calls:
+            # Send stream_end before continuing (no message to save)
+            await ws_manager.notify_ui({"type": "stream_end", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "interrupted": is_interrupted})
             continue
 
         # If reply is empty but we have tool calls, save a minimal message
@@ -1036,6 +1037,9 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
                 await ws_manager.notify_agent(member["id"], {"type": "message", **payload})
 
         await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": agent["id"], "sender_name": agent.get("name") or full_agent.get("name", ""), "text": reply, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
+
+        # Send stream_end AFTER message is saved
+        await ws_manager.notify_ui({"type": "stream_end", "stream_id": stream_id, "room_id": room_id, "agent_id": agent["id"], "interrupted": is_interrupted})
 
         # Chain collaboration (skip if interrupted)
         if reply_mentions and room_type == "group" and not is_interrupted:

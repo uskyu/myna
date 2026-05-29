@@ -179,31 +179,7 @@
 
     <!-- Input bar (hidden when info panel showing) -->
     <div v-if="!(type === 'group' && showSettings)" class="input-bar">
-      <!-- Clone confirmation dialog -->
-      <div v-if="cloneConfirm" class="clone-confirm-popup">
-        <div class="clone-confirm-content">
-          <span class="clone-confirm-icon">👥</span>
-          <span class="clone-confirm-text">{{ cloneConfirm.agentName }} 正在工作中，是否创建分身？</span>
-        </div>
-        <div class="clone-confirm-actions">
-          <button class="clone-btn cancel" @click="cloneConfirm = null">取消</button>
-          <button class="clone-btn confirm" @click="confirmClone">创建分身</button>
-        </div>
-      </div>
-
-      <!-- Floating action bar -->
-      <div v-if="type === 'group'" class="action-bar">
-        <button class="action-bar-btn" :class="{ active: showShortcutBar }" @click="showShortcutBar = !showShortcutBar" title="快捷指令">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          <span>指令</span>
-        </button>
-        <button class="action-bar-btn" :class="{ active: cloneMode }" @click="cloneMode = !cloneMode" title="分身模式：允许同一智能体并行处理多个任务">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
-          <span>分身</span>
-        </button>
-      </div>
-
-      <!-- Shortcut bar (above input, below action-bar) -->
+      <!-- Shortcut bar (above input) -->
       <div v-if="showShortcutBar" class="shortcut-bar">
         <button v-for="cmd in shortcutCommands" :key="cmd.id" class="shortcut-chip" @click="applyShortcut(cmd)" :title="cmd.label">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14"><path :d="cmd.icon"/></svg>
@@ -325,8 +301,6 @@ const threadDrawerOpen = ref(false)
 const showPlusMenu = ref(false)
 const showShortcutMenu = ref(false)
 const showShortcutBar = ref(false)
-const cloneMode = ref(false)
-const cloneConfirm = ref(null)  // { agentName, agentId, pendingText, pendingMentions }
 
 // Shortcut commands (like TG Hermes slash commands)
 const shortcutCommands = [
@@ -512,25 +486,6 @@ function cancelStream(msg) {
   // Remove from activeStreams
   delete store.activeStreams[streamId]
   store.activeStreams = { ...store.activeStreams }
-}
-
-// === Clone (分身) confirmation ===
-async function confirmClone() {
-  const { pendingText, pendingMentions } = cloneConfirm.value
-  cloneConfirm.value = null
-
-  // Optimistic add
-  messages.value.push({
-    id: 'tmp-' + Date.now(),
-    sender_id: 'user',
-    sender_name: '我',
-    text: pendingText,
-    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
-  })
-  await nextTick()
-  scrollToBottom()
-
-  await api('POST', activeThreadId.value ? `/admin/threads/${activeThreadId.value}/send` : `/admin/rooms/${props.room.id}/send`, { text: pendingText, mentions: pendingMentions })
 }
 
 const title = computed(() => {
@@ -1098,27 +1053,6 @@ async function send() {
       // Fallback: first non-user member
       const first = props.room.members.find(m => m.id !== 'user' && m.id !== 'system')
       if (first) mentions.push(first.id)
-    }
-  }
-
-  // Clone check: if agent is busy and clone mode is OFF, ask user
-  if (!cloneMode.value && mentions.length > 0) {
-    const busyAgent = mentions.find(agentId => {
-      return Object.values(store.activeStreams).some(s => s.agentId === agentId)
-    })
-    if (busyAgent) {
-      const agentObj = store.agents.find(a => a.id === busyAgent)
-      cloneConfirm.value = {
-        agentName: agentObj?.name || '智能体',
-        agentId: busyAgent,
-        pendingText: body,
-        pendingMentions: mentions,
-      }
-      // Clear input but keep pending in confirm dialog
-      inputText.value = ''
-      attachments.value = []
-      if (inputEl.value) inputEl.value.style.height = 'auto'
-      return  // Don't send yet, wait for confirmation
     }
   }
 
