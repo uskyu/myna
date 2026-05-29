@@ -628,8 +628,9 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
 
             final_text = await loop.run_in_executor(_executor, _run_hermes_sync)
 
-            if final_text and on_token:
-                await on_token(final_text)
+            # Don't send final_text again — _stream_delta already sent tokens incrementally
+            # if final_text and on_token:
+            #     await on_token(final_text)
 
             return final_text or None
 
