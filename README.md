@@ -15,6 +15,14 @@
 
 ---
 
+## 基于 Hermes Agent
+
+Myna 基于 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 构建，复用了 Hermes 的工具调用、记忆、技能、委派与多平台 Agent 运行能力，并在此基础上提供面向团队协作的 Web UI、房间、链式 @接力、自主进化与 Docker 化部署体验。
+
+Hermes Agent 是 Nous Research 开源的通用 AI Agent 框架；Myna 是围绕 Hermes Agent 能力扩展出来的多智能体协作平台。
+
+---
+
 ## 核心能力：Agent 链式协作
 
 Myna 的核心不是"又一个 ChatGPT 套壳"——而是**多个 AI 智能体在同一个房间里自动接力完成任务**。
