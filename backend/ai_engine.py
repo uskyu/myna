@@ -11,6 +11,7 @@ import traceback
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from workspaces import get_room_workspace_dir
 
 # Hermes Agent imports
 HERMES_PATH = Path("/root/hermes")
@@ -315,6 +316,19 @@ def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, 
 
     prompt += "\n\n回复使用 Markdown 格式，保持简洁专业。直接执行用户的指令。"
 
+    workspace_path = room_settings.get("__workspace_path") if isinstance(room_settings, dict) else None
+    workspace_mode = room_settings.get("__workspace_mode") if isinstance(room_settings, dict) else None
+    if workspace_path:
+        prompt += f"""
+
+[工作空间]
+当前群聊/项目共享工作空间：{workspace_path}
+工作空间模式：{'绑定目录' if workspace_mode == 'custom' else '默认群聊目录'}
+- 所有本群智能体默认在这个共享工作空间内读写、运行命令和保存产物。
+- 代码、测试报告、截图、导出文件等应优先放在该工作空间下。
+- 不要把项目文件写到你的个人 Hermes profile 目录；profile 只用于记忆、技能和配置。
+- 如果用户明确给出其他绝对路径，可按用户指定路径操作。"""
+
     # Slash command instructions
     prompt += """
 
@@ -385,7 +399,8 @@ def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, 
 
 async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                            model_config: dict | None, callbacks: dict,
-                           cancel_event=None) -> str | None:
+                           cancel_event=None, room_id: str | None = None,
+                           room_settings: dict | None = None) -> str | None:
     """
     Run Hermes AIAgent for a conversation turn.
     Uses callbacks for real-time tool event streaming to UI.
@@ -487,9 +502,10 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                 profile_dir = get_agent_profile_dir(agent.get("id", "default"))
                 token = set_hermes_home_override(str(profile_dir))
 
-                # Set agent workspace as default cwd (persisted via volume)
-                workspace_dir = profile_dir / "workspace"
-                workspace_dir.mkdir(exist_ok=True)
+                # Set room/project workspace as default cwd (shared by all agents in this room).
+                # Agent profile remains isolated for memory/skills/config; project files do not
+                # belong in the per-agent profile workspace.
+                workspace_dir = get_room_workspace_dir(room_id or agent.get("id", "default"), room_settings)
                 old_terminal_cwd = os.environ.get("TERMINAL_CWD")
                 os.environ["TERMINAL_CWD"] = str(workspace_dir)
 
@@ -560,7 +576,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     auto_mode = False
                     try:
                         import yaml
-                        _settings_db_path = Path("/root/hermes-hub/db/myna.sqlite")
+                        _settings_db_path = Path(__file__).parent.parent / "db" / "myna.sqlite"
                         if _settings_db_path.exists():
                             import sqlite3
                             _conn = sqlite3.connect(str(_settings_db_path))
@@ -731,12 +747,15 @@ async def _execute_tool(name: str, args: dict) -> dict:
         if name == "run_command":
             cmd = args.get("command", "")
             timeout = args.get("timeout", 30)
-            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+            cwd = os.environ.get("TERMINAL_CWD") or None
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, cwd=cwd)
             output = proc.stdout + proc.stderr
             return {"ok": proc.returncode == 0, "output": output[:8000] or "(empty)"}
         elif name == "read_file":
             path = args.get("path", "")
             p = Path(path).expanduser()
+            if not p.is_absolute():
+                p = Path(os.environ.get("TERMINAL_CWD") or os.getcwd()) / p
             if not p.exists():
                 return {"ok": False, "output": f"File not found: {path}"}
             content = p.read_text(errors="replace")
@@ -745,6 +764,8 @@ async def _execute_tool(name: str, args: dict) -> dict:
             path = args.get("path", "")
             content = args.get("content", "")
             p = Path(path).expanduser()
+            if not p.is_absolute():
+                p = Path(os.environ.get("TERMINAL_CWD") or os.getcwd()) / p
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content)
             return {"ok": True, "output": f"Written {len(content)} bytes to {path}"}
@@ -879,6 +900,10 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         # Build system prompt
         # Only show agents that are members of this room (not all agents globally)
+        room_workspace = get_room_workspace_dir(room_id, room_settings)
+        prompt_room_settings = dict(room_settings)
+        prompt_room_settings["__workspace_path"] = str(room_workspace)
+        prompt_room_settings["__workspace_mode"] = "custom" if room_settings.get("workspace_path") else "default"
         room_members = db.get_room_members(room_id)
         other_agents = []
         for m in room_members:
@@ -892,7 +917,7 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         system_prompt = build_system_prompt(full_agent, room_type,
                                             other_agents if room_type == "group" else None,
                                             agent_skills,
-                                            room_settings)
+                                            prompt_room_settings)
 
         model_config = get_model_config_for_agent(db, full_agent)
         stream_id = f"stream_{int(datetime.now().timestamp() * 1000)}_{agent['id'][:8]}"
@@ -963,7 +988,8 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         history = _compress_history(history, keep_recent=5, model_context_limit=model_context_limit)
 
         try:
-            reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks, cancel_event)
+            reply = await run_hermes_agent(full_agent, history, system_prompt, model_config, callbacks, cancel_event,
+                                           room_id=room_id, room_settings=room_settings)
         except InterruptedError as ie:
             # Could be user cancel OR context pressure / tool loop detection
             err_msg = str(ie)

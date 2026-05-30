@@ -43,8 +43,8 @@ COPY src/web/public/ ./src/web/public/
 ARG MYNA_VERSION=dev
 ENV MYNA_VERSION=${MYNA_VERSION}
 
-# Create data directories
-RUN mkdir -p /app/data /app/db /root/.hermes/profiles
+# Create persistent data directories. In Docker, /app/db and /app/data are volumes.
+RUN mkdir -p /app/data/uploads /app/data/workspaces /app/db /root/.hermes/profiles
 
 WORKDIR /app/backend
 

@@ -78,6 +78,13 @@ docker compose up -d
 
 自动拉起 Myna 容器（SQLite），访问 `http://localhost:3456`
 
+Docker 部署默认使用命名卷持久化数据：
+- `app_db`：聊天记录、群聊、智能体配置、登录会话
+- `app_data`：上传附件、群聊共享工作空间 `/app/data/workspaces`
+- `hermes_profiles`：每个智能体的 Hermes 记忆、技能和配置
+
+升级镜像/重建容器不会清空这些数据，除非手动删除 Docker volumes。
+
 > 需要 MySQL？使用 `docker compose -f docker-compose.mysql.yml up -d`
 
 ### 方式二：本地运行（SQLite）

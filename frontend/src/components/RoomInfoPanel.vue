@@ -103,6 +103,31 @@
         >
       </div>
       <div class="setting-hint">智能体能看到的最近消息条数。设为 0 表示使用全局设置</div>
+
+      <div class="workspace-card">
+        <div class="workspace-title-row">
+          <div>
+            <div class="workspace-title">共享工作空间</div>
+            <div class="workspace-subtitle">本群所有智能体默认在同一个项目目录读写、运行命令和保存产物</div>
+          </div>
+          <span class="workspace-mode">{{ roomWorkspaceModeLabel }}</span>
+        </div>
+        <div class="workspace-path-row">
+          <code>{{ roomWorkspacePath || '加载中...' }}</code>
+          <button class="btn-sm" @click="copyWorkspacePath">复制</button>
+        </div>
+        <label class="setting-label workspace-label">绑定本机目录（可选）</label>
+        <div class="workspace-bind-row">
+          <input
+            class="setting-input workspace-input"
+            v-model.trim="roomSettings.workspace_path"
+            @change="saveSettings"
+            placeholder="留空使用默认 /app/data/workspaces/room-xxx"
+          >
+          <button v-if="roomSettings.workspace_path" class="btn-sm" @click="clearWorkspaceBinding">使用默认</button>
+        </div>
+        <div class="setting-hint">绑定目录必须是服务器上的绝对路径，例如 /root/hermes-hub。智能体 profile 仍独立保存记忆/技能。</div>
+      </div>
     </div>
 
     <!-- Collaboration Guide -->
@@ -284,13 +309,19 @@ const roomSettings = reactive({
   max_chain_depth: 5,
   context_messages_limit: 0,
   collaboration_guide: '',
+  workspace_path: '',
 })
+const roomWorkspacePath = ref('')
+const roomWorkspaceMode = ref('default')
+const roomWorkspaceModeLabel = computed(() => roomWorkspaceMode.value === 'custom' ? '绑定目录' : '默认目录')
 
 async function load() {
   const data = await api('GET', '/admin/rooms')
   const room = (data.result || []).find(r => r.id === props.room.id)
   if (room) {
     members.value = room.members || []
+    roomWorkspacePath.value = room.workspace_path || ''
+    roomWorkspaceMode.value = room.workspace_mode || 'default'
     if (!form.name) form.name = room.name || ''
     if (!form.description) form.description = room.description || ''
     // Load settings from room's settings_json
@@ -299,6 +330,7 @@ async function load() {
         const s = typeof room.settings_json === 'string' ? JSON.parse(room.settings_json) : room.settings_json
         if (s.max_chain_depth !== undefined) roomSettings.max_chain_depth = s.max_chain_depth
         if (s.context_messages_limit !== undefined) roomSettings.context_messages_limit = s.context_messages_limit
+        roomSettings.workspace_path = s.workspace_path || ''
         if (s.collaboration_guide !== undefined) {
           roomSettings.collaboration_guide = s.collaboration_guide
           guideText.value = s.collaboration_guide || ''
@@ -387,8 +419,26 @@ async function saveSettings() {
       max_chain_depth: chainVal,
       context_messages_limit: ctxVal,
       collaboration_guide: roomSettings.collaboration_guide,
+      workspace_path: roomSettings.workspace_path || '',
     }
   })
+  await load()
+}
+
+async function copyWorkspacePath() {
+  if (!roomWorkspacePath.value) return
+  try {
+    await navigator.clipboard.writeText(roomWorkspacePath.value)
+    lastSavedTag.value = '路径已复制'
+    setTimeout(() => { lastSavedTag.value = '' }, 1600)
+  } catch {
+    window.prompt('复制工作空间路径', roomWorkspacePath.value)
+  }
+}
+
+async function clearWorkspaceBinding() {
+  roomSettings.workspace_path = ''
+  await saveSettings()
 }
 
 async function addMember(a) {
@@ -780,6 +830,58 @@ onMounted(() => { load(); loadWorkflows(); loadRoomSkills(); loadAllSkills() })
   font-size: 12px;
   color: var(--text-dim);
   margin-top: 6px;
+}
+
+.workspace-card {
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.workspace-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.workspace-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.workspace-subtitle { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-top: 2px; }
+.workspace-mode {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid rgba(217, 119, 6, 0.24);
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-weight: 700;
+}
+.workspace-path-row,
+.workspace-bind-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.workspace-path-row code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.workspace-label { display: block; margin: 12px 0 6px; }
+.workspace-input {
+  flex: 1;
+  width: auto;
+  text-align: left;
 }
 
 .hint-box {

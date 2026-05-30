@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
+from workspaces import get_room_workspace_info
 
 router = APIRouter()
 
@@ -94,7 +95,12 @@ async def list_rooms(request: Request):
         members = db.get_room_members(r["id"])
         msgs = db.get_room_messages(r["id"], 1)
         last_msg = msgs[-1] if msgs else None
-        result.append({**r, "members": members, "last_message": last_msg})
+        workspace_info = {}
+        try:
+            workspace_info = get_room_workspace_info(r["id"], db.get_room_settings(r["id"]))
+        except Exception as e:
+            workspace_info = {"workspace_error": str(e)}
+        result.append({**r, "members": members, "last_message": last_msg, **workspace_info})
     return {"ok": True, "result": result}
 
 
@@ -120,6 +126,14 @@ async def update_room(room_id: str, request: Request):
         settings = body["settings_json"]
         if isinstance(settings, str):
             settings = json.loads(settings)
+        workspace_path = str(settings.get("workspace_path") or "").strip()
+        if workspace_path:
+            expanded = os.path.expanduser(workspace_path)
+            if not os.path.isabs(expanded):
+                return JSONResponse({"ok": False, "error": "workspace_path must be an absolute path"}, status_code=400)
+            settings["workspace_path"] = expanded
+        else:
+            settings["workspace_path"] = ""
         db.update_room_settings(room_id, settings)
     sets = []
     vals = []
