@@ -118,30 +118,65 @@ export async function checkForUpdate() {
 
 export async function doUpdate() {
   updateInfo.updating = true
-  updateInfo.stage = 'pulling'
-  updateInfo.message = '正在启动更新...'
+  updateInfo.stage = 'requesting_updater'
+  updateInfo.message = '正在通知独立更新器...'
   updateInfo.percent = 0
   updateInfo.error = ''
   try {
     const token = localStorage.getItem('hub_auth_token')
-    const res = await fetch('/api/system/update', {
+    const res = await fetch('/admin/system/update', {
       method: 'POST',
       headers: token ? { 'Authorization': `Bearer ${token}` } : {}
     })
-    const data = await res.json()
-    if (!data.success) {
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.ok) {
       updateInfo.updating = false
       updateInfo.stage = 'error'
-      updateInfo.message = data.message || '更新失败'
-      alert('更新失败: ' + (data.message || '未知错误'))
+      updateInfo.message = data.error || data.message || `更新失败 (${res.status})`
+      alert('更新失败: ' + updateInfo.message)
+      return
     }
-    // Progress will be pushed via WebSocket (update_progress events)
+    updateInfo.stage = 'updater_started'
+    updateInfo.message = '更新器已启动，服务可能会短暂断开...'
+    updateInfo.percent = 20
+    startUpdateRecoveryPoll()
   } catch (e) {
     alert('更新请求失败: ' + e.message)
     updateInfo.updating = false
     updateInfo.stage = 'error'
     updateInfo.message = e.message
   }
+}
+
+function startUpdateRecoveryPoll() {
+  let attempts = 0
+  const startedAt = Date.now()
+  const poll = setInterval(async () => {
+    attempts++
+    if (attempts > 180) {
+      clearInterval(poll)
+      updateInfo.updating = false
+      updateInfo.stage = 'timeout'
+      updateInfo.message = '更新器已启动，但等待服务恢复超时，请手动刷新检查'
+      return
+    }
+    try {
+      const token = localStorage.getItem('hub_auth_token')
+      const r = await fetch('/admin/system/check-update', {
+        cache: 'no-store',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+      if (!r.ok) return
+      const data = await r.json()
+      if (Date.now() - startedAt > 8000 && data.ok && !data.available) {
+        clearInterval(poll)
+        updateInfo.stage = 'completed'
+        updateInfo.message = '更新完成，正在刷新页面...'
+        updateInfo.percent = 100
+        setTimeout(() => window.location.reload(), 800)
+      }
+    } catch {}
+  }, 1000)
 }
 
 // Clear unread count for a room
@@ -296,14 +331,17 @@ function _globalWSHandler(msg) {
     updateInfo.latestVersion = msg.remote_version || ''
     updateInfo.checked = true
   } else if (msg.type === 'update_progress') {
-    // Real-time update progress from backend
-    updateInfo.stage = msg.status || ''
+    // Real-time update progress from backend / external updater handoff
+    const stage = msg.stage || msg.status || ''
+    updateInfo.stage = stage
     updateInfo.message = msg.message || ''
-    updateInfo.percent = msg.progress || 0
-    if (msg.status === 'error') {
+    updateInfo.percent = msg.percent ?? msg.progress ?? 0
+    if (stage === 'error') {
       updateInfo.updating = false
       updateInfo.error = msg.message
-    } else if (msg.status === 'completed') {
+    } else if (stage === 'updater_started' || stage === 'requesting_updater') {
+      updateInfo.updating = true
+    } else if (stage === 'completed') {
       // Server will restart — poll until it comes back
       let attempts = 0
       const poll = setInterval(async () => {

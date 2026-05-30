@@ -83,6 +83,8 @@ Docker 部署默认使用命名卷持久化数据：
 - `app_data`：上传附件、群聊共享工作空间 `/app/data/workspaces`
 - `hermes_profiles`：每个智能体的 Hermes 记忆、技能和配置
 
+在线更新采用成熟的外部更新器模式：Myna 只在设置页发起更新请求，实际拉取镜像和重建容器由 Watchtower 完成，避免应用容器“自己替换自己”。
+
 升级镜像/重建容器不会清空这些数据，除非手动删除 Docker volumes。
 
 > 需要 MySQL？使用 `docker compose -f docker-compose.mysql.yml up -d`

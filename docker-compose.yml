@@ -8,12 +8,35 @@ services:
     environment:
       - PORT=3456
       - DB_TYPE=sqlite
+      - WATCHTOWER_UPDATE_URL=http://watchtower:8080/v1/update
+      - WATCHTOWER_HTTP_API_TOKEN=${WATCHTOWER_HTTP_API_TOKEN:-myna-local-update-token}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     volumes:
       - app_db:/app/db
       - app_data:/app/data
       - hermes_profiles:/root/.hermes/profiles
       - /var/run/docker.sock:/var/run/docker.sock
       - ./docker-compose.yml:/app/docker-compose.yml:ro
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - DOCKER_API_VERSION=1.40
+      - WATCHTOWER_HTTP_API_TOKEN=${WATCHTOWER_HTTP_API_TOKEN:-myna-local-update-token}
+    command:
+      - --label-enable
+      - --cleanup
+      - --http-api-update
+      - --http-api-periodic-polls
+      - --interval
+      - "300"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   app_db:

@@ -1012,113 +1012,96 @@ async def check_for_update():
 
 @router.post("/system/update")
 async def do_system_update(request: Request):
-    """Trigger container update with real-time progress via WebSocket."""
+    """Trigger container update via an external updater.
+
+    A running web app should not pull/recreate its own container. Mature Docker
+    apps delegate self-updates to a supervisor/updater process (Watchtower,
+    Portainer agent, systemd unit, etc.). Myna's button therefore asks
+    Watchtower to perform the update and only streams the requested state.
+    """
     import os
+    import time
+    import httpx
+
     if not (os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")):
         return JSONResponse({"ok": False, "error": "Not running in Docker mode"}, status_code=400)
 
-    docker_sock = "/var/run/docker.sock"
-    if not os.path.exists(docker_sock):
+    if not os.path.exists("/var/run/docker.sock"):
         return JSONResponse({"ok": False, "error": "Docker socket not mounted"}, status_code=400)
 
     ws_manager = get_ws(request)
+    update_url = os.environ.get("WATCHTOWER_UPDATE_URL", "").strip()
+    token = os.environ.get("WATCHTOWER_HTTP_API_TOKEN", "").strip()
 
-    async def _pull_with_progress():
-        """Run docker pull and stream progress to UI via WebSocket."""
-        import re
+    async def _trigger_external_updater():
         try:
-            await ws_manager.notify_ui({"type": "update_progress", "stage": "pulling", "message": "正在拉取镜像...", "percent": 0})
+            await ws_manager.notify_ui({
+                "type": "update_progress",
+                "stage": "requesting_updater",
+                "message": "正在通知独立更新器...",
+                "percent": 5,
+            })
 
-            # Use asyncio subprocess for non-blocking pull
-            proc = await asyncio.subprocess.create_subprocess_exec(
-                "docker", "pull", "ghcr.io/uskyu/myna:latest",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT
-            )
-
-            layers_progress = {}  # layer_id -> (current, total)
-            output_lines = []
-
-            async for line_bytes in proc.stdout:
-                line = line_bytes.decode('utf-8', errors='replace').strip()
-                if not line:
-                    continue
-                output_lines.append(line)
-
-                # Parse docker pull progress lines like:
-                # "abc123: Downloading  12.5MB/45.2MB"
-                # "abc123: Pull complete"
-                # "abc123: Already exists"
-                m = re.match(r'^([a-f0-9]+):\s+(Downloading|Extracting)\s+(\d+(?:\.\d+)?[kKmMgG]?B?)/(\d+(?:\.\d+)?[kKmMgG]?B?)', line)
-                if m:
-                    layer_id = m.group(1)
-                    current_str = m.group(3)
-                    total_str = m.group(4)
-                    current = _parse_size(current_str)
-                    total = _parse_size(total_str)
-                    layers_progress[layer_id] = (current, total)
-                elif re.match(r'^([a-f0-9]+):\s+(Pull complete|Already exists)', line):
-                    layer_id = line.split(':')[0]
-                    layers_progress[layer_id] = (1, 1)  # 100%
-
-                # Calculate overall progress
-                if layers_progress:
-                    total_bytes = sum(t for _, t in layers_progress.values())
-                    done_bytes = sum(c for c, _ in layers_progress.values())
-                    percent = int(done_bytes * 100 / total_bytes) if total_bytes > 0 else 0
-                    percent = min(percent, 99)  # Cap at 99 until fully done
+            # Preferred path: Watchtower HTTP API in the same compose network.
+            if update_url and token:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(update_url, headers={"Authorization": f"Bearer {token}"})
+                if 200 <= resp.status_code < 300:
                     await ws_manager.notify_ui({
                         "type": "update_progress",
-                        "stage": "pulling",
-                        "message": f"下载中... {percent}%",
-                        "percent": percent,
-                        "layers": len(layers_progress)
+                        "stage": "updater_started",
+                        "message": "更新器已接管，正在拉取镜像并重启容器...",
+                        "percent": 20,
                     })
+                    return
+                await ws_manager.notify_ui({
+                    "type": "update_progress",
+                    "stage": "error",
+                    "message": f"Watchtower API 调用失败: HTTP {resp.status_code} {resp.text[:120]}",
+                    "percent": 0,
+                })
+                return
 
-            await proc.wait()
-
+            # Compatibility path for older deployments: start a one-shot
+            # Watchtower helper container. It is still an external updater; Myna
+            # does not attempt to replace its own process.
+            updater_name = f"myna-updater-{int(time.time())}"
+            cmd = [
+                "docker", "run", "-d", "--rm",
+                "--name", updater_name,
+                "-v", "/var/run/docker.sock:/var/run/docker.sock",
+                "containrrr/watchtower:latest",
+                "--run-once",
+                "--cleanup",
+                "--label-enable",
+                "myna-app",
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if proc.returncode != 0:
-                await ws_manager.notify_ui({"type": "update_progress", "stage": "error", "message": "拉取失败", "percent": 0})
+                await ws_manager.notify_ui({
+                    "type": "update_progress",
+                    "stage": "error",
+                    "message": f"启动更新器失败: {(proc.stderr or proc.stdout)[:160]}",
+                    "percent": 0,
+                })
                 return
 
-            await ws_manager.notify_ui({"type": "update_progress", "stage": "pulled", "message": "镜像已更新，正在重启...", "percent": 100})
-
-            # Trigger Watchtower or direct recreate
-            wt_result = subprocess.run(
-                ["docker", "kill", "--signal=SIGHUP", "watchtower"],
-                capture_output=True, text=True, timeout=10
-            )
-            if wt_result.returncode == 0:
-                await ws_manager.notify_ui({"type": "update_progress", "stage": "restarting", "message": "Watchtower 正在重启容器...", "percent": 100})
-                return
-
-            # Fallback: direct compose recreate
-            container_id = ""
-            ps_result = subprocess.run(
-                ["docker", "ps", "--filter", "label=com.docker.compose.service=myna",
-                 "--format", "{{.ID}}"],
-                capture_output=True, text=True, timeout=10
-            )
-            if ps_result.returncode == 0 and ps_result.stdout.strip():
-                container_id = ps_result.stdout.strip().split("\n")[0]
-
-            if container_id:
-                subprocess.Popen(
-                    ["docker", "compose", "-f", "/app/docker-compose.yml", "-p", "myna",
-                     "up", "-d", "--force-recreate", "--no-deps", "myna"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    start_new_session=True
-                )
-                await ws_manager.notify_ui({"type": "update_progress", "stage": "restarting", "message": "正在重启容器...", "percent": 100})
-            else:
-                await ws_manager.notify_ui({"type": "update_progress", "stage": "error", "message": "找不到容器，请手动重启"})
-
+            await ws_manager.notify_ui({
+                "type": "update_progress",
+                "stage": "updater_started",
+                "message": "一次性 Watchtower 更新器已启动，正在拉取镜像并重启容器...",
+                "percent": 20,
+            })
         except Exception as e:
-            await ws_manager.notify_ui({"type": "update_progress", "stage": "error", "message": f"更新失败: {str(e)[:100]}"})
+            await ws_manager.notify_ui({
+                "type": "update_progress",
+                "stage": "error",
+                "message": f"触发更新失败: {type(e).__name__}: {str(e)[:120]}",
+                "percent": 0,
+            })
 
-    # Launch pull in background, return immediately
-    asyncio.create_task(_pull_with_progress())
-    return {"ok": True, "message": "Update started, progress will be pushed via WebSocket."}
+    asyncio.create_task(_trigger_external_updater())
+    return {"ok": True, "message": "Update handed off to external updater."}
 
 
 def _parse_size(s: str) -> int:
