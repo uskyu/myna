@@ -25,7 +25,6 @@ from routes.gateway import router as gateway_router
 from routes.upload import router as upload_router
 from routes.auth import router as auth_router, is_authenticated, ensure_password_initialized
 from routes.system_agent import router as system_agent_router
-from routes.system import router as system_router
 from workflow_engine import WorkflowRunner, WorkflowScheduler
 from credentials import CredentialStore
 from system_agent import SystemAgent
@@ -93,7 +92,7 @@ async def lifespan(app: FastAPI):
     
     # Start update check task (Docker mode only)
     async def _update_check_loop():
-        from routes.system import check_system_update
+        from routes.admin import check_for_update
         IS_DOCKER = os.path.exists("/.dockerenv")
         if not IS_DOCKER:
             return
@@ -101,12 +100,12 @@ async def lifespan(app: FastAPI):
         while True:
             await asyncio.sleep(600)  # Check every 10 minutes
             try:
-                result = await check_system_update()
-                if result.get("has_update"):
+                result = await check_for_update()
+                if isinstance(result, dict) and result.get("available"):
                     await ws_manager.notify_ui({
                         "type": "update_available",
-                        "local_version": result.get("local_version"),
-                        "remote_version": result.get("remote_version")
+                        "local_version": result.get("current"),
+                        "remote_version": result.get("latest")
                     })
             except Exception as e:
                 print(f"[UPDATE] Check error: {e}")
@@ -136,7 +135,6 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/auth")
 app.include_router(admin_router, prefix="/admin")
 app.include_router(system_agent_router, prefix="/admin/system-agent")
-app.include_router(system_router)
 app.include_router(gateway_router)
 app.include_router(upload_router)
 
@@ -202,42 +200,50 @@ async def websocket_endpoint(websocket: WebSocket):
         app.state.ws_manager.add_ui(websocket)
         try:
             await websocket.send_json({"type": "connected", "client": "ui"})
-            # Send active streams for reconnection (with accumulated text + tool_calls)
+            # Send active streams for reconnection with ordered parts preserved.
             for stream_id, info in app.state.ws_manager.active_streams.items():
                 await websocket.send_json({
                     "type": "stream_start",
                     "stream_id": stream_id,
-                    **{k: v for k, v in info.items() if k not in ("text", "tool_calls")},
+                    **{k: v for k, v in info.items() if k not in ("text", "tool_calls", "parts")},
                 })
-                # Send accumulated text as a single token chunk
-                if info.get("text"):
-                    await websocket.send_json({
-                        "type": "stream_token",
-                        "stream_id": stream_id,
-                        "room_id": info["room_id"],
-                        "chunk": info["text"],
-                    })
-                # Send accumulated tool calls
-                for tc in info.get("tool_calls", []):
-                    await websocket.send_json({
-                        "type": "tool_call",
-                        "stream_id": stream_id,
-                        "room_id": info["room_id"],
-                        "agent_id": info["agent_id"],
-                        "tool": tc["name"],
-                        "args_summary": tc.get("summary", ""),
-                        "timestamp": 0,
-                    })
-                    if tc["status"] != "running":
+                for part in info.get("parts") or []:
+                    if part.get("type") == "text" and part.get("text"):
                         await websocket.send_json({
-                            "type": "tool_result",
+                            "type": "stream_token",
+                            "stream_id": stream_id,
+                            "room_id": info["room_id"],
+                            "chunk": part.get("text", ""),
+                        })
+                    elif part.get("type") == "tool":
+                        await websocket.send_json({
+                            "type": "tool_call",
                             "stream_id": stream_id,
                             "room_id": info["room_id"],
                             "agent_id": info["agent_id"],
-                            "tool": tc["name"],
-                            "ok": tc["status"] == "done",
-                            "output_preview": tc.get("result", ""),
+                            "tool": part.get("name"),
+                            "args_summary": part.get("summary", ""),
+                            "timestamp": 0,
                         })
+                        if part.get("status") != "running":
+                            await websocket.send_json({
+                                "type": "tool_result",
+                                "stream_id": stream_id,
+                                "room_id": info["room_id"],
+                                "agent_id": info["agent_id"],
+                                "tool": part.get("name"),
+                                "ok": part.get("status") == "done",
+                                "output_preview": part.get("result", ""),
+                            })
+                if info.get("interrupted"):
+                    await websocket.send_json({
+                        "type": "stream_interrupted",
+                        "stream_id": stream_id,
+                        "room_id": info.get("room_id"),
+                        "agent_id": info.get("agent_id"),
+                        "thread_id": info.get("thread_id"),
+                        "timestamp": info.get("timestamp"),
+                    })
             while True:
                 raw = await websocket.receive_text()
                 # Handle UI commands (cancel stream, etc.)
@@ -247,7 +253,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     if cmd.get("type") == "cancel_stream":
                         stream_id = cmd.get("stream_id")
                         if stream_id:
-                            app.state.ws_manager.cancel_stream(stream_id)
+                            await app.state.ws_manager.interrupt_stream(stream_id)
                 except:
                     pass
         except WebSocketDisconnect:

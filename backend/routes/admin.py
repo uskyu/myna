@@ -11,6 +11,8 @@ from workspaces import get_room_workspace_info
 
 router = APIRouter()
 
+MENTION_RE = r"@([^\s@,，.。;；:：!！?？]+)"
+
 
 def get_db(request: Request):
     return request.app.state.db
@@ -18,6 +20,18 @@ def get_db(request: Request):
 
 def get_ws(request: Request):
     return request.app.state.ws_manager
+
+
+async def _interrupt_matching_streams(ws_manager, room_id: str, mentions: list, thread_id: str = None):
+    """Interrupt active streams before a new user turn is persisted."""
+    for stream_id, stream_info in list(ws_manager.active_streams.items()):
+        if stream_info.get("room_id") != room_id:
+            continue
+        if (stream_info.get("thread_id") or None) != (thread_id or None):
+            continue
+        agent_id = stream_info.get("agent_id")
+        if agent_id in mentions or not mentions:
+            await ws_manager.interrupt_stream(stream_id)
 
 
 # === Auth middleware (via dependency) ===
@@ -138,13 +152,13 @@ async def update_room(room_id: str, request: Request):
     sets = []
     vals = []
     if "name" in body:
-        sets.append("name = ?"); vals.append(body["name"])
+        sets.append(f"name = {db._placeholder()}"); vals.append(body["name"])
     if "description" in body:
-        sets.append("description = ?"); vals.append(body["description"])
+        sets.append(f"description = {db._placeholder()}"); vals.append(body["description"])
     if sets:
         vals.append(room_id)
-        db.conn.execute(f"UPDATE rooms SET {', '.join(sets)} WHERE id = ?", vals)
-        db.conn.commit()
+        db.execute(f"UPDATE rooms SET {', '.join(sets)} WHERE id = {db._placeholder()}", vals)
+        db.commit()
     return {"ok": True}
 
 
@@ -228,8 +242,9 @@ async def send_message(room_id: str, request: Request):
     if not mentions:
         import re
         agents = db.list_agents()
-        for m in re.finditer(r"@(\S+)", text):
-            mentioned = next((a for a in agents if a["name"] == m.group(1)), None)
+        for m in re.finditer(MENTION_RE, text):
+            mention_name = m.group(1).strip().strip("*_`~|")
+            mentioned = next((a for a in agents if a["name"] == mention_name), None)
             if mentioned:
                 mentions.append(mentioned["id"])
 
@@ -263,17 +278,12 @@ async def send_message(room_id: str, request: Request):
                 asyncio.create_task(_retry())
         return {"ok": True, "result": {"action": "retry"}}
 
-    message = db.create_message(room_id, "user", text, "markdown", None, mentions)
-
     room = db.get_room(room_id)
     room_type = room["type"] if room else "group"
 
-    # Auto-interrupt: cancel any active streams for mentioned agents in this room
-    for stream_id, stream_info in list(ws_manager.active_streams.items()):
-        if stream_info.get('room_id') == room_id:
-            agent_id = stream_info.get('agent_id')
-            if agent_id in mentions or not mentions:
-                ws_manager.cancel_stream(stream_id)
+    await _interrupt_matching_streams(ws_manager, room_id, mentions)
+
+    message = db.create_message(room_id, "user", text, "markdown", None, mentions)
 
     # Trigger AI asynchronously
     from ai_engine import process_message
@@ -607,8 +617,9 @@ async def send_thread_message(thread_id: str, request: Request):
     if not mentions:
         import re
         agents = db.list_agents()
-        for m in re.finditer(r"@(\S+)", text):
-            mentioned = next((a for a in agents if a["name"] == m.group(1)), None)
+        for m in re.finditer(MENTION_RE, text):
+            mention_name = m.group(1).strip().strip("*_`~|")
+            mentioned = next((a for a in agents if a["name"] == mention_name), None)
             if mentioned:
                 mentions.append(mentioned["id"])
 
@@ -641,17 +652,12 @@ async def send_thread_message(thread_id: str, request: Request):
                 asyncio.create_task(_retry_thread())
         return {"ok": True, "result": {"action": "retry"}}
 
-    message = db.create_message(thread["room_id"], "user", text, "markdown", None, mentions, thread_id=thread_id)
-
     room = db.get_room(thread["room_id"])
     room_type = room["type"] if room else "group"
 
-    # Auto-interrupt: cancel any active streams for mentioned agents in this thread
-    for stream_id, stream_info in list(ws_manager.active_streams.items()):
-        if stream_info.get('room_id') == thread["room_id"] and stream_info.get('thread_id') == thread_id:
-            agent_id = stream_info.get('agent_id')
-            if agent_id in mentions or not mentions:
-                ws_manager.cancel_stream(stream_id)
+    await _interrupt_matching_streams(ws_manager, thread["room_id"], mentions, thread_id)
+
+    message = db.create_message(thread["room_id"], "user", text, "markdown", None, mentions, thread_id=thread_id)
 
     # Trigger AI
     from ai_engine import process_message
@@ -1026,12 +1032,12 @@ async def do_system_update(request: Request):
     if not (os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")):
         return JSONResponse({"ok": False, "error": "Not running in Docker mode"}, status_code=400)
 
-    if not os.path.exists("/var/run/docker.sock"):
-        return JSONResponse({"ok": False, "error": "Docker socket not mounted"}, status_code=400)
-
     ws_manager = get_ws(request)
     update_url = os.environ.get("WATCHTOWER_UPDATE_URL", "").strip()
     token = os.environ.get("WATCHTOWER_HTTP_API_TOKEN", "").strip()
+
+    if not (update_url and token) and not os.path.exists("/var/run/docker.sock"):
+        return JSONResponse({"ok": False, "error": "Watchtower API not configured and Docker socket not mounted"}, status_code=400)
 
     async def _trigger_external_updater():
         try:

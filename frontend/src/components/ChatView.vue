@@ -94,7 +94,7 @@
             <div class="msg-meta-row">
               <span class="msg-time">{{ msg.streaming ? (msg.text ? '生成中...' : '思考中...') : msg.time }}</span>
               <!-- Message actions (edit/delete/mention/retry/copy) — always visible for non-streaming -->
-              <span v-if="!msg.streaming && !String(msg.id).startsWith('tmp-')" class="msg-actions">
+              <span v-if="!msg.streaming && !String(msg.id).startsWith('tmp-') && !String(msg.id).startsWith('stream-')" class="msg-actions">
                 <button class="msg-action-btn danger" @click.stop="deleteMsg(msg)" title="删除">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
@@ -322,7 +322,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { marked } from 'marked'
-import { store, api, ws, escapeHtml, getAgentColor, getAgentIcon, loadConversations, clearUnread, currentRoomId, chatSettings, saveChatSettings } from '../store.js'
+import { store, api, ws, escapeHtml, getAgentColor, getAgentIcon, loadConversations, clearUnread, currentRoomId, chatSettings, saveChatSettings, markStreamInterrupted } from '../store.js'
 import RoomInfoPanel from './RoomInfoPanel.vue'
 
 const props = defineProps({ room: Object, type: String })
@@ -348,7 +348,7 @@ const threadDrawerOpen = ref(false)
 const showPlusMenu = ref(false)
 const showShortcutBar = ref(false)
 
-const hasActiveStreamInRoom = computed(() => Object.values(store.activeStreams).some(s => s.roomId === props.room.id))
+const hasActiveStreamInView = computed(() => Object.values(store.activeStreams).some(s => s.roomId === props.room.id && (s.threadId || null) === activeThreadId.value && !s.interrupted))
 
 // Shortcut commands (like TG Hermes slash commands)
 const shortcutCommands = [
@@ -482,11 +482,10 @@ function applyShortcut(cmd) {
         if (ws._ws && ws._ws.readyState === WebSocket.OPEN) {
           ws._ws.send(JSON.stringify({ type: 'cancel_stream', stream_id: streamId }))
         }
-        delete store.activeStreams[streamId]
+        markStreamInterrupted(streamId)
         count++
       }
     }
-    store.activeStreams = { ...store.activeStreams }
     showToast(count ? '已停止生成' : '当前没有正在生成的回复')
     return
   }
@@ -521,7 +520,8 @@ function applyShortcut(cmd) {
       sender_id: 'user',
       sender_name: '我',
       text: cmd.command,
-      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      created_at: new Date().toISOString(),
+      clientSortTs: Date.now(),
     })
     nextTick(scrollToBottom)
 
@@ -546,13 +546,7 @@ function cancelStream(msg) {
   if (ws._ws && ws._ws.readyState === WebSocket.OPEN) {
     ws._ws.send(JSON.stringify({ type: 'cancel_stream', stream_id: streamId }))
   }
-  // Remove the live bubble immediately. The backend will receive the cancel and
-  // send stream_end/optional compact marker later; no need to keep a long partial
-  // response stuck at the bottom.
-  if (store.activeStreams[streamId]) {
-    delete store.activeStreams[streamId]
-  }
-  store.activeStreams = { ...store.activeStreams }
+  markStreamInterrupted(streamId)
 }
 
 const title = computed(() => {
@@ -614,6 +608,18 @@ function formatMsgDate(ts) {
   } catch { return ts.slice(0, 10) }
 }
 
+function parseMessageTs(ts) {
+  if (!ts) return 0
+  if (typeof ts === 'number') return ts
+  try {
+    const value = String(ts)
+    const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value)
+    const normalized = value.replace(' ', 'T') + (hasZone ? '' : 'Z')
+    const d = new Date(normalized)
+    return isNaN(d.getTime()) ? 0 : d.getTime()
+  } catch { return 0 }
+}
+
 function renderMd(text) {
   if (!text) return ''
   try {
@@ -666,6 +672,7 @@ function renderMd(text) {
 
 const messageGroups = computed(() => {
   const allMsgs = []
+  const replacedInterruptedStreams = new Set()
   messages.value.forEach(m => {
     const self = m.sender_id === 'user' || m.sender_id === 'system'
     // Parse metadata for tool_calls and chronological parts
@@ -680,8 +687,17 @@ const messageGroups = computed(() => {
         if (meta.parts && meta.parts.length > 0) {
           parts = meta.parts.map(p => p.type === 'text' ? { ...p, rendered: cachedRenderMd(p.text, `${m.id}-part-${p.text?.length || 0}`) } : p)
         }
+        if (meta.interrupted && meta.stream_id && store.activeStreams[meta.stream_id]?.interrupted) {
+          replacedInterruptedStreams.add(meta.stream_id)
+        }
       } catch {}
     }
+    const metaSortTs = (() => {
+      try {
+        const meta = typeof m.metadata === 'string' ? JSON.parse(m.metadata) : (m.metadata || {})
+        return meta.sort_ts || meta.stream_started_at || 0
+      } catch { return 0 }
+    })()
     allMsgs.push({
       id: m.id,
       sender_id: m.sender_id,
@@ -690,7 +706,7 @@ const messageGroups = computed(() => {
       rendered: cachedRenderMd(m.text, m.id),
       time: formatMsgTime(m.created_at),
       date: formatMsgDate(m.created_at),
-      sortTs: new Date(m.created_at).getTime() || 0,
+      sortTs: m.clientSortTs || metaSortTs || parseMessageTs(m.created_at),
       self,
       showName: !self && (props.type === 'group' || !self),
       toolCalls,
@@ -700,6 +716,7 @@ const messageGroups = computed(() => {
   })
   for (const sid in store.activeStreams) {
     const s = store.activeStreams[sid]
+    if (replacedInterruptedStreams.has(sid)) continue
     if (s.roomId !== props.room.id) continue
     if ((s.threadId || null) !== activeThreadId.value) continue
     const startedAt = s.startedAt || Date.now()
@@ -709,7 +726,7 @@ const messageGroups = computed(() => {
       sender_name: s.agentName,
       text: s.text,
       rendered: renderMd(s.text),
-      time: s.interrupted ? '已中断，正在保存...' : '',
+      time: s.interrupted ? '已中断' : '',
       date: '',
       sortTs: startedAt,
       self: false,
@@ -1166,10 +1183,10 @@ async function send() {
     props.room.members.forEach(m => { memberMap[m.name] = m.id })
   }
   store.agents.forEach(a => { memberMap[a.name] = a.id })
-  const mentionRegex = /@(\S+)/g
+  const mentionRegex = /@([^\s@,，.。;；:：!！?？]+)/g
   let match
   while ((match = mentionRegex.exec(text)) !== null) {
-    const name = match[1]
+    const name = match[1].replace(/[*_`~|]/g, '').trim()
     // Handle @全部 — add all members
     if (name === '全部' || name === 'all') {
       if (props.room.members) {
@@ -1199,17 +1216,15 @@ async function send() {
   attachments.value = []
   if (inputEl.value) inputEl.value.style.height = 'auto'
 
-  // Auto-interrupt: cancel matching active streams and remove live bubbles
-  // immediately. User intent is to stop the old reply, not keep partial content
-  // pinned below the newly sent message.
+  // Auto-interrupt: keep the old stream in-place and mark it interrupted so the
+  // next user turn appears below it in the correct order.
   if (ws._ws && ws._ws.readyState === WebSocket.OPEN) {
     for (const [streamId, stream] of Object.entries(store.activeStreams)) {
       if (stream.roomId === props.room.id && (stream.threadId || null) === activeThreadId.value && (mentions.includes(stream.agentId) || mentions.length === 0)) {
         ws._ws.send(JSON.stringify({ type: 'cancel_stream', stream_id: streamId }))
-        delete store.activeStreams[streamId]
+        markStreamInterrupted(streamId)
       }
     }
-    store.activeStreams = { ...store.activeStreams }
   }
 
   // Optimistic add
@@ -1218,7 +1233,8 @@ async function send() {
     sender_id: 'user',
     sender_name: '我',
     text: body,
-    created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    created_at: new Date().toISOString(),
+    clientSortTs: Date.now(),
   })
   await nextTick()
   scrollToBottom()
@@ -1251,7 +1267,8 @@ async function handleCommand(text) {
       sender_id: 'user',
       sender_name: '我',
       text: cmd,
-      created_at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      created_at: new Date().toISOString(),
+      clientSortTs: Date.now(),
     })
     nextTick(scrollToBottom)
     const endpoint = activeThreadId.value ? `/admin/threads/${activeThreadId.value}/send` : `/admin/rooms/${props.room.id}/send`
@@ -1321,7 +1338,7 @@ function handleWS(msg) {
   } else if (msg.type === 'new_message' && msg.room_id === props.room.id) {
     // Only fetch if thread matches current view
     const msgThread = msg.thread_id || null
-    if (msgThread === activeThreadId.value && !hasActiveStreamInRoom.value) {
+    if (msgThread === activeThreadId.value && !hasActiveStreamInView.value) {
       fetchMessages({ forceScroll: true })
     }
     // Refresh threads list in case a workflow created a new thread
@@ -1352,7 +1369,7 @@ onMounted(() => {
   fetchMessages({ forceScroll: true })
   fetchThreads()
   pollTimer = setInterval(() => {
-    if (!hasActiveStreamInRoom.value) fetchMessages({ keepPosition: true })
+    if (!hasActiveStreamInView.value) fetchMessages({ keepPosition: true })
   }, 3000)
   ws.onMessage(handleWS)
   // If there are already active streams for this room (e.g. from WS reconnect before mount),

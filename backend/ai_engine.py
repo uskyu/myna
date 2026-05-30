@@ -272,7 +272,7 @@ def get_model_config_for_agent(db, agent: dict) -> dict | None:
     return config
 
 
-def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, skills: list = None, room_settings: dict = None) -> str:
+def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, skills: list = None, room_settings: dict = None, room: dict = None) -> str:
     """Build system prompt for an agent."""
     tools_desc = """你拥有 Hermes Agent 引擎的完整能力：
 - 执行系统命令（本地/SSH远程）
@@ -315,6 +315,20 @@ def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, 
         prompt = f"你是 {name}，一个全能智能助手。\n\n{tools_desc}"
 
     prompt += "\n\n回复使用 Markdown 格式，保持简洁专业。直接执行用户的指令。"
+
+    room_settings = room_settings or {}
+    room_description = (room or {}).get("description") or room_settings.get("room_description") or ""
+    guide_text = room_settings.get("collaboration_guide", "")
+    unified_guide = room_settings.get("room_guide") or ""
+    if not unified_guide:
+        unified_guide = "\n\n".join([s.strip() for s in [room_description, guide_text] if isinstance(s, str) and s.strip()])
+    if unified_guide:
+        prompt += f"""
+
+[群聊目标与协作规则]
+以下是用户为本群配置的目标、背景、角色分工和协作流程，所有智能体必须遵守：
+
+{unified_guide.strip()}"""
 
     workspace_path = room_settings.get("__workspace_path") if isinstance(room_settings, dict) else None
     workspace_mode = room_settings.get("__workspace_mode") if isinstance(room_settings, dict) else None
@@ -368,9 +382,8 @@ def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, 
 4. 完成协作任务后，@回请求方告知结果
 5. 不要自己尝试做不属于你职责的事情，交给专业的智能体处理"""
 
-    # Inject collaboration guide if configured
-    room_settings = room_settings or {}
-    guide_text = room_settings.get("collaboration_guide", "")
+    # Inject legacy JSON collaboration guide if configured separately.
+    guide_text = "" if unified_guide else room_settings.get("collaboration_guide", "")
     if guide_text and isinstance(guide_text, str) and guide_text.strip():
         # Support both new plain-text format and legacy JSON format
         display_text = guide_text.strip()
@@ -394,7 +407,104 @@ def build_system_prompt(agent: dict, room_type: str, other_agents: list = None, 
 
 重要：完成你负责的部分后，主动 @下一个负责人并说明进展。"""
 
+    handoff_rules = room_settings.get("handoff_rules") or []
+    if isinstance(handoff_rules, list) and handoff_rules:
+        lines = []
+        for rule in handoff_rules[:20]:
+            if not isinstance(rule, dict):
+                continue
+            trigger = str(rule.get("trigger") or "完成当前职责后").strip()
+            target = str(rule.get("target") or "").strip()
+            instruction = str(rule.get("instruction") or "").strip()
+            if target:
+                lines.append(f"- 当{trigger}，必须主动 @{target} {instruction}".rstrip())
+        if lines:
+            prompt += "\n\n[硬性交接规则]\n" + "\n".join(lines) + "\n这些规则优先级高于一般协作建议；完成对应阶段后不要等待用户提醒。"
+
     return prompt
+
+
+def _parse_tools_config(agent: dict) -> dict:
+    raw = agent.get("tools_config") if agent else None
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _merge_disabled_toolsets(exec_mode: str, tools_config: dict) -> list | None:
+    disabled = []
+    if exec_mode == "readonly":
+        disabled.extend(["terminal", "file"])
+    disabled.extend(tools_config.get("disabled_toolsets") or [])
+    allowed = tools_config.get("allowed_toolsets") or []
+    known = ["terminal", "file", "http", "browser", "memory", "skills"]
+    if allowed:
+        disabled.extend([name for name in known if name not in allowed])
+    unique = []
+    for item in disabled:
+        if item and item not in unique:
+            unique.append(item)
+    return unique or None
+
+
+def _direct_toolset_for_tool(name: str) -> str | None:
+    mapping = {
+        "run_command": "terminal",
+        "read_file": "file",
+        "write_file": "file",
+        "search_files": "file",
+        "http_request": "http",
+    }
+    return mapping.get(name)
+
+
+def _handoff_mentions(reply: str, agent: dict, all_agents: list, room_settings: dict,
+                      used_handoff_edges: set | None = None) -> list:
+    """Return agent ids that should be triggered by structured room handoff rules."""
+    rules = room_settings.get("handoff_rules") or []
+    if not isinstance(rules, list) or not reply:
+        return []
+    agent_name = agent.get("name", "")
+    result = []
+    lowered = reply.lower()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        source = str(rule.get("source") or "").strip()
+        if source and source not in (agent_name, agent.get("id")):
+            continue
+        target_name = str(rule.get("target") or "").strip()
+        if not target_name:
+            continue
+        keywords = rule.get("keywords") or rule.get("when_contains") or []
+        if isinstance(keywords, str):
+            keywords = [keywords]
+        if keywords and not any(str(k).lower() in lowered for k in keywords if str(k).strip()):
+            continue
+        target = next((a for a in all_agents if a.get("name") == target_name or a.get("id") == target_name), None)
+        edge_key = (agent.get("id"), target.get("id")) if target else None
+        if used_handoff_edges and edge_key in used_handoff_edges:
+            continue
+        if target and target.get("id") != agent.get("id") and target.get("id") not in result:
+            result.append(target["id"])
+    return result
+
+
+def _safe_completion_max_tokens(value, default: int = 4096, hard_limit: int = 8192) -> int:
+    """Clamp stored model token values to a sane completion-token budget."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = default
+    if n <= 0:
+        n = default
+    return max(1, min(n, hard_limit))
 
 
 async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
@@ -421,7 +531,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
         base_url = model_config["base_url"]
         api_key = model_config["api_key"]
         model = model_config["model"]
-        max_tokens = params.get("max_tokens") or model_config.get("max_tokens") or 4096
+        max_tokens = _safe_completion_max_tokens(params.get("max_tokens") or model_config.get("max_tokens"))
         temperature = params.get("temperature") if params.get("temperature") is not None else model_config.get("temperature", 0.7)
         api_mode = params.get("api_mode", "chat_completions")
     else:
@@ -434,6 +544,13 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
         max_tokens = 4096
         temperature = 0.7
         api_mode = "chat_completions"
+
+    exec_mode = agent.get("execution_mode", "auto")
+    tools_config = _parse_tools_config(agent)
+    disabled_toolsets = _merge_disabled_toolsets(exec_mode, tools_config)
+    preferred_tools = tools_config.get("preferred_tools") or tools_config.get("preference") or ""
+    if preferred_tools:
+        system_prompt += f"\n\n[Tool preference]\n{preferred_tools}\nDisabled tools must not be used."
 
     # Use Hermes Agent engine for full capabilities (tools, memory, skills)
     if HERMES_AVAILABLE:
@@ -511,6 +628,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
 
                 # Determine execution mode from agent config
                 exec_mode = agent.get("execution_mode", "auto")
+                tools_config = _parse_tools_config(agent)
 
                 # Configure profile based on execution_mode
                 _ensure_hub_agent_config(profile_dir, base_url, api_key, model, exec_mode)
@@ -523,10 +641,10 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     os.environ.pop("HERMES_YOLO_MODE", None)
 
                 # Determine toolsets based on execution_mode
-                disabled_toolsets = None
-                if exec_mode == "readonly":
-                    # Readonly: disable all write/execute tools
-                    disabled_toolsets = ["terminal", "file"]
+                disabled_toolsets = _merge_disabled_toolsets(exec_mode, tools_config)
+                preferred_tools = tools_config.get("preferred_tools") or ""
+                if preferred_tools:
+                    system_prompt += f"\n\n[工具偏好]\n{preferred_tools}\n如果与用户明确要求冲突，以用户本轮要求为准；如果与禁用工具冲突，禁用工具不可使用。"
 
                 # Set up approval callback for 'confirm' mode
                 if exec_mode == "confirm":
@@ -660,12 +778,13 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
 
     # Fallback: Direct OpenAI-compatible API call with tool use
     return await direct_api_call(base_url, api_key, model, system_prompt, history,
-                                  max_tokens, temperature, callbacks)
+                                  max_tokens, temperature, callbacks, disabled_toolsets)
 
 
 async def direct_api_call(base_url: str, api_key: str, model: str,
                            system_prompt: str, history: list,
-                           max_tokens: int, temperature: float, callbacks: dict) -> str | None:
+                           max_tokens: int, temperature: float, callbacks: dict,
+                           disabled_toolsets: list | None = None) -> str | None:
     """Direct OpenAI-compatible API call with tool use loop."""
     import httpx
 
@@ -680,13 +799,22 @@ async def direct_api_call(base_url: str, api_key: str, model: str,
         {"type": "function", "function": {"name": "http_request", "description": "Send HTTP request", "parameters": {"type": "object", "properties": {"method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]}, "url": {"type": "string"}, "headers": {"type": "object"}, "body": {"type": "string"}}, "required": ["method", "url"]}}},
         {"type": "function", "function": {"name": "search_files", "description": "Search files by content or name", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "default": "."}, "file_glob": {"type": "string"}}, "required": ["pattern"]}}},
     ]
+    disabled = set(disabled_toolsets or [])
+    if disabled:
+        TOOL_DEFINITIONS = [
+            tool for tool in TOOL_DEFINITIONS
+            if _direct_toolset_for_tool(tool["function"]["name"]) not in disabled
+        ]
 
     messages = [{"role": "system", "content": system_prompt}] + history
     url = base_url.rstrip("/") + "/chat/completions"
 
     async with httpx.AsyncClient(timeout=120) as client:
         for round_num in range(8):
-            body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "tools": TOOL_DEFINITIONS, "tool_choice": "auto"}
+            body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
+            if TOOL_DEFINITIONS:
+                body["tools"] = TOOL_DEFINITIONS
+                body["tool_choice"] = "auto"
 
             resp = await client.post(url, json=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
             if resp.status_code != 200:
@@ -794,12 +922,14 @@ async def _execute_tool(name: str, args: dict) -> dict:
 
 async def process_message(db, ws_manager, room_id: str, sender_id: str, text: str,
                            mentions: list = None, room_type: str = "group",
-                           chain_depth: int = 0, thread_id: str = None):
+                           chain_depth: int = 0, thread_id: str = None,
+                           handoff_edges: set | None = None):
     """
     Process a message and generate AI replies from mentioned agents.
     Core orchestration logic.
     """
     mentions = mentions or []
+    handoff_edges = handoff_edges or set()
 
     # Chain depth limit: only applies to agent-to-agent chains, NOT user messages
     # Default max_chain = 5 if not configured (prevents infinite loops)
@@ -905,13 +1035,17 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
                     other_agents.append(full_m)
                 else:
                     other_agents.append(m)
+        room = db.get_room(room_id)
+        prompt_room_settings["room_description"] = room.get("description", "") if room else ""
         system_prompt = build_system_prompt(full_agent, room_type,
                                             other_agents if room_type == "group" else None,
                                             agent_skills,
-                                            prompt_room_settings)
+                                            prompt_room_settings,
+                                            room)
 
         model_config = get_model_config_for_agent(db, full_agent)
-        stream_id = f"stream_{int(datetime.now().timestamp() * 1000)}_{agent['id'][:8]}"
+        stream_started_at = int(datetime.now().timestamp() * 1000)
+        stream_id = f"stream_{stream_started_at}_{agent['id'][:8]}"
 
         await ws_manager.notify_ui({
             "type": "stream_start",
@@ -920,7 +1054,7 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
             "agent_id": agent["id"],
             "agent_name": agent.get("name") or full_agent.get("name", ""),
             "thread_id": thread_id,
-            "timestamp": int(datetime.now().timestamp() * 1000),
+            "timestamp": stream_started_at,
         })
 
         collected_tool_calls = []
@@ -1032,7 +1166,10 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
             reply = f"⏹ 已停止（已执行 {len(collected_tool_calls)} 个工具调用）"
             metadata = {
                 "interrupted": True,
+                "stream_id": stream_id,
+                "sort_ts": stream_started_at,
                 "tool_calls": collected_tool_calls,
+                "parts": stream_parts,
                 "interrupted_tool_calls": collected_tool_calls,
             }
         else:
@@ -1058,11 +1195,23 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         reply_mentions = []
         # Strip markdown formatting around @mentions: **@name**, *@name*, `@name`, etc.
         clean_reply = re.sub(r'[*_`~|]', '', reply)
-        for m in re.finditer(r"@(\S+)", clean_reply):
-            mention_name = m.group(1).rstrip(".,;:!?，。；：！？")
+        for m in re.finditer(r"@([^\s@,，.。;；:：!！?？]+)", clean_reply):
+            mention_name = m.group(1).strip()
             mentioned = next((a for a in all_agents if a["name"] == mention_name and a["id"] != agent["id"]), None)
             if mentioned and mentioned["id"] not in reply_mentions:
                 reply_mentions.append(mentioned["id"])
+        structured_handoff_mentions = _handoff_mentions(reply, full_agent, all_agents, room_settings, handoff_edges)
+        visible_handoff_lines = []
+        for mid in structured_handoff_mentions:
+            if mid not in reply_mentions:
+                reply_mentions.append(mid)
+            handoff_edges.add((agent["id"], mid))
+            target_agent = next((a for a in all_agents if a.get("id") == mid), None)
+            target_name = target_agent.get("name") if target_agent else None
+            if target_name and f"@{target_name}" not in clean_reply:
+                visible_handoff_lines.append(f"@{target_name} 请继续跟进。")
+        if visible_handoff_lines:
+            reply = reply.rstrip() + "\n\n" + "\n".join(visible_handoff_lines)
 
         message = db.create_message(room_id, agent["id"], reply, "markdown", None, reply_mentions, metadata, thread_id)
 
@@ -1080,7 +1229,7 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
         # Chain collaboration (skip if interrupted)
         if reply_mentions and room_type == "group" and not is_interrupted:
             await asyncio.sleep(1)
-            await process_message(db, ws_manager, room_id, agent["id"], reply, reply_mentions, room_type, chain_depth + 1, thread_id)
+            await process_message(db, ws_manager, room_id, agent["id"], reply, reply_mentions, room_type, chain_depth + 1, thread_id, handoff_edges)
 
         # Self-improvement (skip if interrupted)
         # Default: OFF globally and per-agent. Must be explicitly enabled.
@@ -1103,12 +1252,12 @@ async def process_message(db, ws_manager, room_id: str, sender_id: str, text: st
 
         if (collected_tool_calls and len(collected_tool_calls) >= effective_threshold
             and chain_depth == 0 and effective_self_improve and _global_self_improve):
-            print(f"[AI] 🧠 Triggering self-improvement for {full_agent.get('name')}: {len(collected_tool_calls)} tool calls >= threshold {effective_threshold}")
+            print(f"[AI] Self-improvement trigger for {full_agent.get('name')}: {len(collected_tool_calls)} tool calls >= threshold {effective_threshold}")
             asyncio.create_task(_self_improvement(db, ws_manager, room_id, thread_id, full_agent, collected_tool_calls, reply, model_config))
         elif collected_tool_calls:
-            print(f"[AI] 🧠 Self-improvement skipped for {full_agent.get('name')}: {len(collected_tool_calls)} tool calls, threshold={effective_threshold}, enabled={effective_self_improve}, global={_global_self_improve}, chain={chain_depth}")
+            print(f"[AI] Self-improvement skipped for {full_agent.get('name')}: {len(collected_tool_calls)} tool calls, threshold={effective_threshold}, enabled={effective_self_improve}, global={_global_self_improve}, chain={chain_depth}")
         else:
-            print(f"[AI] 🧠 No tool calls collected for {full_agent.get('name')} (self_improve={effective_self_improve})")
+            print(f"[AI] No tool calls collected for {full_agent.get('name')} (self_improve={effective_self_improve})")
 
 
 async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_calls, last_reply, model_config):
@@ -1159,7 +1308,7 @@ async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_call
 
         if action == "skip":
             reason = parsed.get("reason", "不值得保存")
-            print(f"[AI] 🧠 Self-improvement skipped for {agent['name']}: {reason}")
+            print(f"[AI] Self-improvement skipped for {agent['name']}: {reason}")
             return
 
         if action == "update":
@@ -1173,13 +1322,13 @@ async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_call
                     break
             if target_skill and new_content:
                 db.update_skill(target_skill["id"], {"content": new_content})
-                print(f"[AI] 🔄 Self-improvement: updated skill \"{target_name}\" for {agent['name']}")
+                print(f"[AI] Self-improvement: updated skill \"{target_name}\" for {agent['name']}")
                 db.ensure_system_agents()
                 review_msg = f"🔄 **已更新技能**「{target_name}」"
                 message = db.create_message(room_id, "system", review_msg, "markdown", None, [], None, thread_id)
                 await ws_manager.notify_ui({"type": "new_message", "room_id": room_id, "thread_id": thread_id, "message": {"id": message["id"], "room_id": room_id, "sender_id": "system", "sender_name": "系统", "text": review_msg, "thread_id": thread_id, "created_at": datetime.now().isoformat()}})
             else:
-                print(f"[AI] 🧠 Self-improvement: wanted to update \"{target_name}\" but not found, skipping")
+                print(f"[AI] Self-improvement: wanted to update \"{target_name}\" but not found, skipping")
             return
 
         if action == "create":
@@ -1191,7 +1340,7 @@ async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_call
             # Final dedup check - fuzzy match against existing names
             for existing_name in existing_names:
                 if skill_name.lower() == existing_name.lower() or skill_name in existing_name or existing_name in skill_name:
-                    print(f"[AI] 🧠 Self-improvement: skill \"{skill_name}\" too similar to existing \"{existing_name}\", skipping")
+                    print(f"[AI] Self-improvement: skill \"{skill_name}\" too similar to existing \"{existing_name}\", skipping")
                     return
 
             db.create_skill(
@@ -1201,7 +1350,7 @@ async def _self_improvement(db, ws_manager, room_id, thread_id, agent, tool_call
                 parsed.get("skill_content", ""),
                 "learned"
             )
-            print(f"[AI] 💾 Self-improvement: saved skill \"{skill_name}\" for {agent['name']}")
+            print(f"[AI] Self-improvement: saved skill \"{skill_name}\" for {agent['name']}")
 
             db.ensure_system_agents()
             review_msg = f"💾 **已学习新技能**「{skill_name}」— {parsed.get('skill_description', '')}"

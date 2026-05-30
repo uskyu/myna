@@ -85,7 +85,7 @@
             <div class="model-search">
               <input v-model="modelFilter" placeholder="搜索模型 ID..." class="search-mini">
             </div>
-            <div class="model-options">
+            <div v-if="!form.model" class="model-options">
               <div
                 v-for="m in filteredModels"
                 :key="m.id"
@@ -108,6 +108,7 @@
               <span class="muted">已选：</span>
               <code>{{ form.model }}</code>
               <span v-if="form.max_tokens" class="ctx-tag">{{ formatCtx(form.max_tokens) }} ctx</span>
+              <button type="button" class="link-mini" @click="clearSelectedModel">重新选择</button>
             </div>
           </div>
         </div>
@@ -330,6 +331,7 @@ const filteredModels = computed(() => {
 
 async function selectModel(id) {
   form.model = id
+  modelFilter.value = ''
   // Try to enrich ctx from metadata
   try {
     const data = await api('GET', `/admin/models/metadata?id=${encodeURIComponent(id)}`)
@@ -337,13 +339,17 @@ async function selectModel(id) {
       const exact = data.result[id]
       const matchEntry = exact || Object.values(data.result)[0]
       if (matchEntry) {
-        if (matchEntry.max_input_tokens) form.max_tokens = matchEntry.max_input_tokens
+        if (matchEntry.max_output_tokens) form.max_tokens = Math.min(matchEntry.max_output_tokens, 8192)
         // Update fetchedModels meta too
         const fm = fetchedModels.value.find(m => m.id === id)
         if (fm) fm.meta = matchEntry
       }
     }
   } catch(e) {}
+}
+
+function clearSelectedModel() {
+  form.model = ''
 }
 
 const canSave = computed(() => {
@@ -601,6 +607,15 @@ onMounted(load)
   color: var(--accent);
   font-weight: 600;
 }
+.link-mini {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.link-mini:hover { text-decoration: underline; }
 
 .advanced-section {
   margin-top: 14px;

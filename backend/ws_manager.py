@@ -50,26 +50,41 @@ class WSManager:
                 "thread_id": payload.get("thread_id"),
                 "text": "",
                 "tool_calls": [],
+                "parts": [],
                 "timestamp": payload.get("timestamp"),
+                "interrupted": False,
             }
             self._stream_last_activity[payload["stream_id"]] = time.time()
+        elif payload.get("type") == "stream_interrupted":
+            stream = self.active_streams.get(payload.get("stream_id", ""))
+            if stream:
+                stream["interrupted"] = True
+                stream["working"] = False
+                self._stream_last_activity[payload.get("stream_id", "")] = time.time()
         elif payload.get("type") == "stream_end":
             self.active_streams.pop(payload.get("stream_id", ""), None)
             self._stream_last_activity.pop(payload.get("stream_id", ""), None)
         elif payload.get("type") == "stream_token":
             stream = self.active_streams.get(payload.get("stream_id", ""))
             if stream:
-                stream["text"] += payload.get("chunk", "")
+                chunk = payload.get("chunk", "")
+                stream["text"] += chunk
+                if stream["parts"] and stream["parts"][-1].get("type") == "text":
+                    stream["parts"][-1]["text"] += chunk
+                else:
+                    stream["parts"].append({"type": "text", "text": chunk})
                 self._stream_last_activity[payload.get("stream_id", "")] = time.time()
         elif payload.get("type") == "tool_call":
             stream = self.active_streams.get(payload.get("stream_id", ""))
             if stream:
-                stream["tool_calls"].append({
+                tool_part = {
                     "name": payload.get("tool"),
                     "summary": payload.get("args_summary", ""),
                     "status": "running",
                     "result": None,
-                })
+                }
+                stream["tool_calls"].append(tool_part)
+                stream["parts"].append({"type": "tool", **tool_part})
                 self._stream_last_activity[payload.get("stream_id", "")] = time.time()
         elif payload.get("type") == "tool_result":
             stream = self.active_streams.get(payload.get("stream_id", ""))
@@ -79,6 +94,11 @@ class WSManager:
                     if tc["name"] == payload.get("tool") and tc["status"] == "running":
                         tc["status"] = "done" if payload.get("ok") else "error"
                         tc["result"] = payload.get("output", "")[:200]
+                        break
+                for part in reversed(stream["parts"]):
+                    if part.get("type") == "tool" and part.get("name") == payload.get("tool") and part.get("status") == "running":
+                        part["status"] = "done" if payload.get("ok") else "error"
+                        part["result"] = payload.get("output", "")[:200]
                         break
                 self._stream_last_activity[payload.get("stream_id", "")] = time.time()
 
@@ -142,12 +162,32 @@ class WSManager:
         self._cancelled_streams[stream_id] = event
         return event
 
-    def cancel_stream(self, stream_id: str):
-        """Signal cancellation for a stream."""
+    def cancel_stream(self, stream_id: str) -> bool:
+        """Signal cancellation for a stream. Returns True only on first cancel."""
         event = self._cancelled_streams.get(stream_id)
+        first_cancel = bool(event and not event.is_set())
         if event:
             event.set()
+        stream = self.active_streams.get(stream_id)
+        if stream:
+            stream["interrupted"] = True
+            stream["working"] = False
+        if first_cancel:
             print(f"[WS] Stream {stream_id} cancelled by user")
+        return first_cancel
+
+    async def interrupt_stream(self, stream_id: str):
+        """Cancel a stream and immediately tell UI to render it as interrupted."""
+        self.cancel_stream(stream_id)
+        info = self.active_streams.get(stream_id, {})
+        await self.notify_ui({
+            "type": "stream_interrupted",
+            "stream_id": stream_id,
+            "room_id": info.get("room_id"),
+            "agent_id": info.get("agent_id"),
+            "thread_id": info.get("thread_id"),
+            "timestamp": info.get("timestamp"),
+        })
 
     def unregister_stream_cancel(self, stream_id: str):
         """Clean up cancellation event after stream ends."""

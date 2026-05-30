@@ -64,9 +64,21 @@ export const store = reactive({
   rooms: [],
   dms: [],
   activeStreams: {},
+  cancelledStreamIds: {},
   unreadCounts: {},
   initialized: false,
 })
+
+export function markStreamInterrupted(streamId) {
+  const stream = store.activeStreams[streamId]
+  if (stream) {
+    stream.interrupted = true
+    stream.working = false
+    store.activeStreams = { ...store.activeStreams }
+  }
+  store.cancelledStreamIds[streamId] = Date.now()
+  store.cancelledStreamIds = { ...store.cancelledStreamIds }
+}
 
 // Update check state
 export const updateInfo = reactive({
@@ -249,6 +261,7 @@ function _globalWSHandler(msg) {
     // Server reconnect: clear stale streams — server will replay active ones immediately after
     store.activeStreams = {}
   } else if (msg.type === 'stream_start') {
+    if (store.cancelledStreamIds[msg.stream_id]) return
     store.activeStreams[msg.stream_id] = {
       roomId: msg.room_id,
       agentId: msg.agent_id,
@@ -258,13 +271,20 @@ function _globalWSHandler(msg) {
       toolCalls: [],
       parts: [],
       working: true,
+      interrupted: false,
       startedAt: msg.timestamp || Date.now(),
     }
     store.activeStreams = { ...store.activeStreams }
+  } else if (msg.type === 'stream_interrupted') {
+    markStreamInterrupted(msg.stream_id)
   } else if (msg.type === 'stream_end') {
-    if (store.activeStreams[msg.stream_id]) {
+    if (store.activeStreams[msg.stream_id] && !store.activeStreams[msg.stream_id].interrupted) {
       delete store.activeStreams[msg.stream_id]
       store.activeStreams = { ...store.activeStreams }
+    }
+    if (store.cancelledStreamIds[msg.stream_id]) {
+      delete store.cancelledStreamIds[msg.stream_id]
+      store.cancelledStreamIds = { ...store.cancelledStreamIds }
     }
     // Increment unread if not the current room
     if (msg.room_id && msg.room_id !== currentRoomId.value) {
@@ -353,7 +373,7 @@ function _globalWSHandler(msg) {
         }
         try {
           const token = localStorage.getItem('hub_auth_token')
-          const r = await fetch('/api/system/version', {
+          const r = await fetch('/admin/system/version', {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
           })
           if (r.ok) {

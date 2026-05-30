@@ -63,15 +63,16 @@
       </div>
     </div>
 
-    <!-- Description -->
+    <!-- Room guide -->
     <div class="info-section">
-      <h4>简介</h4>
+      <h4>群聊目标与协作规则</h4>
       <textarea
         v-model="form.description"
-        @blur="saveField"
-        placeholder="这个群聊用来做什么？"
-        rows="2"
+        @blur="saveField()"
+        placeholder="描述这个群聊要完成什么、各智能体如何分工、完成后应该 @谁 接手。"
+        rows="6"
       ></textarea>
+        <div class="setting-hint">这段内容会直接进入所有智能体的系统提示；下方交接规则也会一并注入。</div>
     </div>
 
     <!-- Collaboration Settings -->
@@ -133,22 +134,22 @@
     <!-- Collaboration Guide -->
     <div class="info-section">
       <div class="section-head">
-        <h4>📋 协作指导</h4>
+        <h4>交接规则</h4>
         <button v-if="!showGuideEditor" class="btn-sm" @click="showGuideEditor = true">编辑</button>
       </div>
       <div v-if="!showGuideEditor && !roomSettings.collaboration_guide" class="hint-box">
-        <p>未配置协作指导。设置后所有智能体都能看到完整协作流程。</p>
-        <p class="hint-sub">描述整体目标、各角色分工、交互流程，智能体会自行判断何时接手和 @谁。</p>
+        <p>未配置额外交接规则。建议优先写在上方“群聊目标与协作规则”。</p>
+        <p class="hint-sub">这里保留给硬性流程，例如开发完成后必须 @程序测试员。</p>
       </div>
       <div v-if="!showGuideEditor && roomSettings.collaboration_guide" class="guide-preview-text" @click="showGuideEditor = true">
         <pre class="guide-text-display">{{ roomSettings.collaboration_guide }}</pre>
       </div>
       <div v-if="showGuideEditor" class="guide-editor">
-        <div class="guide-editor-hint">描述整个协作流程，所有智能体都能看到这段内容。可以用自然语言描述角色分工和交互规则。</div>
+        <div class="guide-editor-hint">可写硬性交接流程。保存后也会同步注入智能体提示。</div>
         <textarea
           class="guide-textarea"
           v-model="guideText"
-          placeholder="例如：&#10;本群目标：完成XX功能的开发和测试。&#10;&#10;流程：&#10;1. 用户提出需求&#10;2. @开发 负责编码实现&#10;3. 开发完成后 @测试 进行验证&#10;4. 测试发现问题反馈给 @开发 修复&#10;5. 全部通过后 @开发 提交PR&#10;&#10;规则：&#10;- 每步完成后必须 @下一个负责人&#10;- 遇到阻塞问题直接 @用户 确认"
+          placeholder="例如：&#10;开发完成后必须 @程序测试员 复测。&#10;测试发现问题后必须 @程序开发 修复。&#10;所有阻塞问题直接 @用户 确认。"
           rows="10"
         ></textarea>
         <div class="guide-editor-actions">
@@ -156,6 +157,23 @@
           <button class="btn-sm primary" @click="saveGuide">保存</button>
         </div>
       </div>
+    </div>
+
+    <div class="info-section">
+      <div class="section-head">
+        <h4>自动交接</h4>
+        <button class="btn-sm" @click="addHandoffRule">新增</button>
+      </div>
+      <div v-if="!roomSettings.handoff_rules.length" class="hint-box">
+        <p>未配置自动交接。配置后系统会在回复完成后自动触发下一个智能体。</p>
+      </div>
+      <div v-for="(rule, idx) in roomSettings.handoff_rules" :key="idx" class="handoff-rule-row">
+        <input class="setting-input" v-model.trim="rule.source" @change="saveSettings" placeholder="来源智能体，如 程序开发">
+        <input class="setting-input" v-model.trim="rule.target" @change="saveSettings" placeholder="目标智能体，如 程序测试员">
+        <input class="setting-input" v-model.trim="rule.keywordsText" @change="syncHandoffKeywords(rule); saveSettings()" placeholder="触发关键词，逗号分隔，如 完成,已修复">
+        <button class="btn-sm danger" @click="removeHandoffRule(idx)">删除</button>
+      </div>
+      <div class="setting-hint">如果不填关键词，则该来源智能体每次完成回复都会交接给目标智能体。</div>
     </div>
 
     <!-- Room Skills -->
@@ -309,6 +327,7 @@ const roomSettings = reactive({
   max_chain_depth: 5,
   context_messages_limit: 0,
   collaboration_guide: '',
+  handoff_rules: [],
   workspace_path: '',
 })
 const roomWorkspacePath = ref('')
@@ -334,6 +353,9 @@ async function load() {
         if (s.collaboration_guide !== undefined) {
           roomSettings.collaboration_guide = s.collaboration_guide
           guideText.value = s.collaboration_guide || ''
+        }
+        if (s.handoff_rules !== undefined) {
+          roomSettings.handoff_rules = normalizeHandoffRules(s.handoff_rules)
         }
       } catch {}
     }
@@ -382,9 +404,10 @@ const available = computed(() => {
 const agentColorIdx = (id) => store.agents.findIndex(a => a.id === id)
 
 let saveTimer = null
-async function saveField() {
+async function saveField(immediate = false) {
+  immediate = immediate === true
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(async () => {
+  const run = async () => {
     saving.value = true
     lastSavedTag.value = ''
     try {
@@ -406,7 +429,9 @@ async function saveField() {
     } finally {
       saving.value = false
     }
-  }, 280)
+  }
+  if (immediate) await run()
+  else saveTimer = setTimeout(run, 280)
 }
 
 async function saveSettings() {
@@ -414,15 +439,39 @@ async function saveSettings() {
   roomSettings.max_chain_depth = chainVal
   const ctxVal = Math.max(0, Math.min(200, parseInt(roomSettings.context_messages_limit) || 0))
   roomSettings.context_messages_limit = ctxVal
+  roomSettings.handoff_rules.forEach(syncHandoffKeywords)
   await api('PUT', `/admin/rooms/${props.room.id}`, {
     settings_json: {
       max_chain_depth: chainVal,
       context_messages_limit: ctxVal,
       collaboration_guide: roomSettings.collaboration_guide,
+      handoff_rules: (roomSettings.handoff_rules || []).map(({ keywordsText, ...rule }) => rule),
       workspace_path: roomSettings.workspace_path || '',
     }
   })
   await load()
+}
+
+function normalizeHandoffRules(rules) {
+  if (!Array.isArray(rules)) return []
+  return rules.map(r => {
+    const keywords = Array.isArray(r.keywords) ? r.keywords : []
+    return { ...r, keywords, keywordsText: r.keywordsText || keywords.join(', ') }
+  })
+}
+
+function syncHandoffKeywords(rule) {
+  rule.keywords = String(rule.keywordsText || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
+}
+
+function addHandoffRule() {
+  roomSettings.handoff_rules.push({ source: '', target: '', keywords: [], keywordsText: '', trigger: '完成当前职责后' })
+  saveSettings()
+}
+
+function removeHandoffRule(idx) {
+  roomSettings.handoff_rules.splice(idx, 1)
+  saveSettings()
 }
 
 async function copyWorkspacePath() {
@@ -882,6 +931,17 @@ onMounted(() => { load(); loadWorkflows(); loadRoomSkills(); loadAllSkills() })
   flex: 1;
   width: auto;
   text-align: left;
+}
+
+.handoff-rule-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+@media (max-width: 720px) {
+  .handoff-rule-row { grid-template-columns: 1fr; }
 }
 
 .hint-box {

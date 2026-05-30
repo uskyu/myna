@@ -26,5 +26,20 @@
     "node": ">=20.0.0"
   },
   "private": true,
-  "license": "MIT"
+  "license": "MIT",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uskyu/myna.git"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/uskyu/myna/issues"
+  },
+  "homepage": "https://github.com/uskyu/myna#readme"
 }

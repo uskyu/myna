@@ -60,6 +60,25 @@ class BaseDatabase:
     def _rows_to_list(self, rows):
         return [self._row_to_dict(r) for r in rows]
 
+    def _ensure_column(self, table: str, column: str, definition: str):
+        """Idempotently add a column for older deployments."""
+        try:
+            if isinstance(self, SQLiteDatabase):
+                rows = self.fetchall(f"PRAGMA table_info({table})")
+                exists = any(r.get("name") == column for r in rows)
+                if not exists:
+                    self.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            else:
+                row = self.fetchone(
+                    "SELECT COUNT(*) AS count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+                    (table, column),
+                )
+                if not row or int(row.get("count", 0)) == 0:
+                    self.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            self.commit()
+        except Exception as e:
+            print(f"[DB] Column migration skipped for {table}.{column}: {e}")
+
     # === Agents ===
     def create_agent(self, name: str, description: str = "") -> dict:
         id = str(uuid.uuid4())
@@ -774,6 +793,14 @@ class SQLiteDatabase(BaseDatabase):
         """)
         # Migration: fix old schema where status DEFAULT was 'offline'
         # Update any existing offline agents to online (they should be online by default)
+        self._ensure_column("agents", "model_config_id", "TEXT DEFAULT NULL")
+        self._ensure_column("agents", "execution_mode", "TEXT DEFAULT 'auto'")
+        self._ensure_column("agents", "self_improve", "INTEGER DEFAULT 0")
+        self._ensure_column("agents", "self_improve_threshold", "INTEGER DEFAULT 2")
+        self._ensure_column("agents", "tools_config", "TEXT DEFAULT NULL")
+        self._ensure_column("rooms", "settings_json", "TEXT DEFAULT '{}'")
+        self._ensure_column("messages", "thread_id", "TEXT DEFAULT NULL")
+        self._ensure_column("messages", "metadata", "TEXT DEFAULT NULL")
         self.conn.execute("UPDATE agents SET status = 'online' WHERE status = 'offline'")
         self.conn.commit()
 
@@ -983,3 +1010,11 @@ class MySQLDatabase(BaseDatabase):
             for stmt in stmts:
                 cur.execute(stmt)
         self.conn.commit()
+        self._ensure_column("agents", "model_config_id", "VARCHAR(36) DEFAULT NULL")
+        self._ensure_column("agents", "execution_mode", "VARCHAR(32) DEFAULT 'auto'")
+        self._ensure_column("agents", "self_improve", "TINYINT DEFAULT 0")
+        self._ensure_column("agents", "self_improve_threshold", "INT DEFAULT 2")
+        self._ensure_column("agents", "tools_config", "TEXT DEFAULT NULL")
+        self._ensure_column("rooms", "settings_json", "TEXT DEFAULT NULL")
+        self._ensure_column("messages", "thread_id", "VARCHAR(36) DEFAULT NULL")
+        self._ensure_column("messages", "metadata", "TEXT DEFAULT NULL")

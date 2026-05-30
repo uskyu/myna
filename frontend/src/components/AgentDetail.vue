@@ -109,6 +109,22 @@
           </div>
           <div class="hint">开启后，智能体在工具调用后自动复盘并提取经验保存为技能</div>
         </div>
+        <div class="field-block" style="margin-top:12px">
+          <label>工具策略</label>
+          <div class="tool-policy-grid">
+            <label v-for="tool in toolOptions" :key="tool.id" class="tool-policy-item">
+              <input type="checkbox" :checked="isToolEnabled(tool.id)" @change="toggleTool(tool.id)">
+              <span>{{ tool.label }}</span>
+            </label>
+          </div>
+          <textarea
+            v-model="form.tool_preference"
+            @blur="saveField('tool_preference')"
+            placeholder="工具偏好，例如：账号池管理优先使用 terminal + Selenium；不要使用 browser 工具。"
+            rows="3"
+          ></textarea>
+          <div class="hint">禁用的工具不会暴露给 Hermes；偏好会注入系统提示。</div>
+        </div>
         <div v-if="form.self_improve" class="field-block" style="margin-top:8px">
           <label>触发阈值（工具调用次数 ≥）</label>
           <input type="number" v-model.number="form.self_improve_threshold" @blur="saveField('self_improve_threshold')" min="1" max="20" class="threshold-input">
@@ -243,7 +259,37 @@ const form = reactive({
   execution_mode: props.agent.execution_mode || 'auto',
   self_improve: props.agent.self_improve !== undefined ? !!props.agent.self_improve : false,
   self_improve_threshold: props.agent.self_improve_threshold || 2,
+  disabled_toolsets: parseToolsConfig(props.agent.tools_config).disabled_toolsets || [],
+  tool_preference: parseToolsConfig(props.agent.tools_config).preferred_tools || '',
 })
+
+const toolOptions = [
+  { id: 'terminal', label: '终端' },
+  { id: 'file', label: '文件' },
+  { id: 'http', label: 'HTTP' },
+  { id: 'browser', label: '浏览器' },
+  { id: 'memory', label: '记忆' },
+  { id: 'skills', label: '技能' },
+]
+
+function parseToolsConfig(raw) {
+  if (!raw) return {}
+  if (typeof raw === 'object') return raw
+  try { return JSON.parse(raw) || {} } catch { return {} }
+}
+
+function isToolEnabled(id) {
+  return !form.disabled_toolsets.includes(id)
+}
+
+function toggleTool(id) {
+  if (form.disabled_toolsets.includes(id)) {
+    form.disabled_toolsets = form.disabled_toolsets.filter(t => t !== id)
+  } else {
+    form.disabled_toolsets = [...form.disabled_toolsets, id]
+  }
+  saveField('tools_config')
+}
 
 const idx = computed(() => store.agents.findIndex(a => a.id === props.agent.id))
 
@@ -268,12 +314,20 @@ async function persist() {
       execution_mode: form.execution_mode,
       self_improve: form.self_improve,
       self_improve_threshold: form.self_improve_threshold,
+      tools_config: {
+        disabled_toolsets: form.disabled_toolsets,
+        preferred_tools: form.tool_preference,
+      },
     })
     Object.assign(props.agent, {
       name: form.name,
       description: form.description,
       model_config_id: form.model_config_id || null,
       status: form.status,
+      execution_mode: form.execution_mode,
+      self_improve: form.self_improve,
+      self_improve_threshold: form.self_improve_threshold,
+      tools_config: JSON.stringify({ disabled_toolsets: form.disabled_toolsets, preferred_tools: form.tool_preference }),
     })
     // refresh agents store entry
     const idxStore = store.agents.findIndex(a => a.id === props.agent.id)
@@ -606,6 +660,24 @@ onMounted(() => {
   word-break: break-word;
   margin: 0;
   color: var(--text);
+}
+
+.tool-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.tool-policy-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-2);
 }
 
 /* Skill modal */
