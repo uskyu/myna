@@ -2407,17 +2407,17 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
 }
 .action-bar-btn svg { width: 14px; height: 14px; }
 
-/* === Shortcut Command Floating Bubble/Card === */
+/* === Shortcut Command Floating Card === */
 .shortcut-trigger-btn {
   position: absolute;
-  left: 104px;
-  bottom: calc(100% + 8px);
+  right: 104px;
+  bottom: calc(100% + 10px);
   z-index: 75;
   height: 32px;
-  padding: 0 12px 0 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 92%, var(--accent-soft));
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
   color: var(--accent);
   cursor: pointer;
   display: inline-flex;
@@ -2426,38 +2426,25 @@ input::placeholder, textarea::placeholder { color: var(--text-faint); }
   gap: 6px;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 10px 26px rgba(45, 106, 79, 0.16), 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
   transition: all 0.15s ease;
-}
-.shortcut-trigger-btn::after {
-  content: '';
-  position: absolute;
-  left: 18px;
-  bottom: -5px;
-  width: 9px;
-  height: 9px;
-  background: inherit;
-  border-right: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
-  transform: rotate(45deg);
 }
 .shortcut-trigger-btn:hover,
 .shortcut-trigger-btn.active {
-  background: color-mix(in srgb, var(--accent-soft) 78%, var(--surface));
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--surface));
   color: var(--accent);
-  border-color: var(--accent);
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 .shortcut-trigger-btn svg { width: 15px; height: 15px; }
 .shortcut-card {
   position: absolute;
-  left: 104px;
+  right: 104px;
   bottom: calc(100% + 48px);
   width: min(440px, calc(100vw - 28px));
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--surface) 94%, var(--accent-soft));
+  border-radius: 14px;
+  background: var(--surface);
   box-shadow: var(--shadow-lg);
   z-index: 80;
   animation: slideUp 0.16s ease;
