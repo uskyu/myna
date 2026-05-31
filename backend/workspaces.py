@@ -5,22 +5,11 @@ inside a room/project workspace shared by all agents in that room.
 """
 from __future__ import annotations
 
-import os
 import re
 import uuid
 from pathlib import Path
 from typing import Any
-
-
-def _default_workspaces_root() -> Path:
-    """Default to the app data directory so Docker upgrades keep workspaces."""
-    configured = os.environ.get("MYNA_WORKSPACES_ROOT", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path(__file__).parent.parent / "data" / "workspaces"
-
-
-WORKSPACES_ROOT = _default_workspaces_root()
+from paths import WORKSPACES_ROOT
 
 
 def safe_room_workspace_name(room_id: str) -> str:

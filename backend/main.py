@@ -28,6 +28,7 @@ from routes.system_agent import router as system_agent_router
 from workflow_engine import WorkflowRunner, WorkflowScheduler
 from credentials import CredentialStore
 from system_agent import SystemAgent
+from paths import APP_ROOT, DB_ROOT, UPLOADS_DIR, ensure_runtime_dirs
 
 # Globals
 db = None
@@ -41,10 +42,9 @@ async def lifespan(app: FastAPI):
     global db, ws_manager, workflow_runner, workflow_scheduler
     
     # Startup
-    data_dir = Path(__file__).parent.parent / "db"
-    data_dir.mkdir(exist_ok=True)
+    ensure_runtime_dirs()
     
-    db = get_database(str(data_dir / "myna.sqlite"))
+    db = get_database(str(DB_ROOT / "myna.sqlite"))
     # Initialize password hash at startup to prevent race condition
     ensure_password_initialized(db)
     ws_manager = WSManager()
@@ -332,12 +332,11 @@ async def health():
 
 
 # Serve uploaded files
-uploads_dir = Path(__file__).parent.parent / "data" / "uploads"
-uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Serve frontend static files
-frontend_dist = Path(__file__).parent.parent / "src" / "web" / "public"
+frontend_dist = APP_ROOT / "src" / "web" / "public"
 if frontend_dist.exists():
     class NoCacheIndexStaticFiles(StaticFiles):
         def file_response(self, full_path, stat_result, scope, status_code=200):

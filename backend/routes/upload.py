@@ -7,10 +7,11 @@ import random
 import string
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Request
+from paths import UPLOADS_DIR
 
 router = APIRouter()
 
-UPLOAD_DIR = Path(__file__).parent.parent.parent / "data" / "uploads"
+UPLOAD_DIR = UPLOADS_DIR
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 

@@ -14,9 +14,9 @@ from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from workspaces import get_room_workspace_dir
+from paths import DB_ROOT, HERMES_PATH, PROFILES_ROOT
 
 # Hermes Agent imports
-HERMES_PATH = Path("/root/hermes")
 sys.path.insert(0, str(HERMES_PATH))
 
 try:
@@ -33,9 +33,9 @@ def _get_concurrency_limit():
     try:
         import sqlite3
         from pathlib import Path
-        db_path = Path(__file__).parent.parent / "db" / "myna.sqlite"
+        db_path = DB_ROOT / "myna.sqlite"
         if not db_path.exists():
-            db_path = Path(__file__).parent.parent / "db" / "hermes-hub.sqlite"
+            db_path = DB_ROOT / "hermes-hub.sqlite"
         if db_path.exists():
             conn = sqlite3.connect(str(db_path))
             row = conn.execute("SELECT value FROM hub_settings WHERE key = 'agent_concurrency'").fetchone()
@@ -262,7 +262,7 @@ def resolve_approval(approval_id: str, decision: str):
         cb(decision)
 
 # Hub profiles root — each agent gets its own isolated profile
-HUB_PROFILES_ROOT = Path("/root/.hermes/profiles")
+HUB_PROFILES_ROOT = PROFILES_ROOT
 
 
 def get_agent_profile_dir(agent_id: str) -> Path:
@@ -818,7 +818,7 @@ async def run_hermes_agent(agent: dict, history: list, system_prompt: str,
                     auto_mode = False
                     try:
                         import yaml
-                        _settings_db_path = Path(__file__).parent.parent / "db" / "myna.sqlite"
+                        _settings_db_path = DB_ROOT / "myna.sqlite"
                         if _settings_db_path.exists():
                             import sqlite3
                             _conn = sqlite3.connect(str(_settings_db_path))

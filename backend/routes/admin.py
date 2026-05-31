@@ -8,6 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from workspaces import get_room_workspace_info
+from paths import PROFILES_ROOT
 
 router = APIRouter()
 
@@ -911,7 +912,7 @@ async def serve_media(path: str, download: str = None):
     import mimetypes
     # Try multiple locations for the file
     candidates = [
-        f"/root/.hermes/profiles/{path}",  # Hermes profiles
+        str(PROFILES_ROOT / path),          # Hermes profiles
         f"/{path}",                         # Absolute path (e.g. /app/backend/project/...)
     ]
     full_path = None

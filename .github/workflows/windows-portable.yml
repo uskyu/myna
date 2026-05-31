@@ -1,0 +1,91 @@
+name: Build Windows Portable
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  PYTHON_EMBED_VERSION: '3.11.9'
+  PYTHON_EMBED_TAG: 'python-3.11.9-embed-amd64'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        shell: pwsh
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Prepare portable Python environment
+        shell: pwsh
+        run: |
+          $runtime = "runtime\python"
+          New-Item -ItemType Directory -Force $runtime | Out-Null
+          $zip = "runtime\python-embed.zip"
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/${{ env.PYTHON_EMBED_VERSION }}/${{ env.PYTHON_EMBED_TAG }}.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath $runtime -Force
+          Remove-Item $zip
+          $pth = Get-ChildItem $runtime -Filter "python*._pth" | Select-Object -First 1
+          $pthText = Get-Content $pth.FullName
+          if ($pthText -notcontains "Lib\site-packages") {
+            $pthText += "Lib\site-packages"
+          }
+          $pthText = $pthText | ForEach-Object { if ($_ -eq "#import site") { "import site" } else { $_ } }
+          Set-Content -Encoding ASCII -Path $pth.FullName -Value $pthText
+          Copy-Item (python -c "import pathlib, sysconfig; print(pathlib.Path(sysconfig.get_paths()['purelib']).parent / 'site.py')") "$runtime\site.py"
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "$runtime\get-pip.py"
+          & "$runtime\python.exe" "$runtime\get-pip.py" --no-warn-script-location
+          & "$runtime\python.exe" -m pip install --no-warn-script-location -r backend\requirements.txt --target "$runtime\Lib\site-packages"
+          & "$runtime\python.exe" -m pip install --no-warn-script-location pymysql cryptography anthropic "httpx[socks]" pyyaml --target "$runtime\Lib\site-packages"
+
+      - name: Bundle Hermes Agent
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force vendor | Out-Null
+          git clone --depth 1 https://github.com/NousResearch/hermes-agent.git vendor\hermes-agent
+          & "runtime\python\python.exe" -m pip install --no-warn-script-location vendor\hermes-agent --target "runtime\python\Lib\site-packages"
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $dist = "dist\Myna-Windows-x64"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          New-Item -ItemType Directory -Force "$dist\scripts" | Out-Null
+          Copy-Item backend $dist\backend -Recurse
+          Copy-Item src $dist\src -Recurse
+          Copy-Item scripts\windows $dist\scripts\windows -Recurse
+          Copy-Item vendor $dist\vendor -Recurse
+          Copy-Item runtime $dist\runtime -Recurse
+          Copy-Item README.md $dist\README.md
+          Copy-Item LICENSE $dist\LICENSE
+          Set-Content -Encoding ASCII -Path "$dist\Myna.bat" -Value @(
+            '@echo off',
+            'call "%~dp0scripts\windows\start-myna.bat"'
+          )
+          Compress-Archive -Path $dist\* -DestinationPath dist\Myna-Windows-x64.zip -Force
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Myna-Windows-x64
+          path: dist/Myna-Windows-x64.zip
